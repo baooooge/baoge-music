@@ -1,0 +1,9 @@
+services:
+  baoge-music:
+    build: .
+    container_name: baoge-music
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./bot:/app/bot:rw

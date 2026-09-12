@@ -1,0 +1,28 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+Copyright (C) 2026 BaoGe (https://bybaoge.com)
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Additional Permissions & Requirements under GNU AGPL v3 Section 7:
+1. Attribution: The original copyright notice, author credits (BaoGe),
+   official website links (https://bybaoge.com), and official community links
+   (https://discord.gg/92BB9zGRmS) MUST be prominently preserved and retained
+   in all user-facing interfaces, command outputs, embeds, and documentation.
+2. Anti-Commercialization: Charging fees for this bot or deploying it as a
+   closed-source proprietary paid service without explicit written permission
+   is strictly prohibited.
+3. Patent Retaliation: Any legal action or patent claims initiated against
+   the original author immediately terminates all rights granted under this license.
