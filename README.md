@@ -222,3 +222,9 @@ BaoGe Music Bot は、スタジオ品質の高音質再生、マルチプラッ�
 AGPL-3.0 第 7 条に基づき、本ソフトウェアの改変、再配布、およびホスティングにおいては、原作者の帰属表示、公式サイト、およびコミュニティリンクの維持が義務付けられています。
 
 [トップへ戻る](#language-navigation--語言導覽--语言导航--言語ナビゲーション)
+
+
+## Disclaimer
+This project is an open-source tool developed strictly for educational, personal research, and fair-use study purposes. 
+It does not store, host, distribute, or cache any copyrighted audio files or media streams. All audio playback, metadata parsing, and stream routing are initiated and resolved directly on the end-user's local host through publicly accessible network endpoints. 
+The developer assumes no responsibility or liability for any misuse, copyright infringement, or violation of third-party Terms of Service resulting from the operation of this software.
