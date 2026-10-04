@@ -33,7 +33,7 @@ BaoGe Music Bot is a self-hosted Discord music bot engineered for stability, mul
 
 ### Quick Start (Docker)
 1. Clone the repository:
-   git clone https://github.com/your-username/baoge-music.git
+   git clone https://github.com/baooooge/baoge-music.git
    cd baoge-music
 
 2. Configure environment:
@@ -85,7 +85,7 @@ BaoGe Music Bot 是一款專為錄音室級高保真音質設計的 Discord 音�
 
 ### 快速部署 (Docker)
 1. 下載專案原始碼：
-   git clone https://github.com/your-username/baoge-music.git
+   git clone https://github.com/baooooge/baoge-music.git
    cd baoge-music
 
 2. 設定環境變數：
@@ -137,7 +137,7 @@ BaoGe Music Bot 是一款专为录音室级高保真音质设计的 Discord 音�
 
 ### 快速部署 (Docker)
 1. 下载项目源码：
-   git clone [https://github.com/your-username/baoge-music.git](https://github.com/your-username/baoge-music.git)
+   git clone https://github.com/baooooge/baoge-music.git
    cd baoge-music
 
 2. 配置环境变量：
@@ -189,7 +189,7 @@ BaoGe Music Bot は、スタジオ品質の高音質再生、マルチプラッ�
 
 ### クイックスタート (Docker)
 1. リポジトリのクローン:
-   git clone [https://github.com/your-username/baoge-music.git](https://github.com/your-username/baoge-music.git)
+   git clone https://github.com/baooooge/baoge-music.git
    cd baoge-music
 
 2. 環境変数の設定:
