@@ -63,8 +63,8 @@ class UniversalResolver:
         self._stream_cache = OrderedDict()
         self._cache_lock = asyncio.Lock()
 
-        self.kkbox_client_id = os.getenv("KKBOX_CLIENT_ID", "88cf1cd177fe3280a72152b4e88607e6")
-        self.kkbox_client_secret = os.getenv("KKBOX_CLIENT_SECRET", "5300abe69e4d3a18fff85035dd8c429d")
+        self.kkbox_client_id = os.getenv("KKBOX_CLIENT_ID", "")
+        self.kkbox_client_secret = os.getenv("KKBOX_CLIENT_SECRET", "")
         self.kkbox_cookie = os.getenv("KKBOX_COOKIE", "")
         self._kkbox_token = None
         self._kkbox_token_expiry = 0

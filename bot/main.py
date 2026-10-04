@@ -141,53 +141,52 @@ class MusicBot(commands.Bot):
                 pass
             await asyncio.sleep(15)
 
-    async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None):
+    async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None, is_startup: bool = False):
         loc = self.get_guild_locale(guild)
-        target_user = inviter
-        if not target_user:
-            try:
-                target_user = guild.owner or await self.fetch_user(guild.owner_id)
-            except Exception:
-                target_user = None
 
-        if target_user and not target_user.bot:
-            try:
-                dm_embed = discord.Embed(
-                    title=self.i18n.get("DM_TITLE", loc),
-                    description=self.i18n.get("DM_DESC", loc, user=target_user.display_name, guild=guild.name),
-                    color=0x3498db
-                )
-                dm_embed.add_field(name=self.i18n.get("DM_QUICKSTART_TITLE", loc), value=self.i18n.get("DM_QUICKSTART_VAL", loc), inline=False)
-                dm_embed.add_field(name=self.i18n.get("DM_PERM_TITLE", loc), value=self.i18n.get("DM_PERM_VAL", loc), inline=False)
-                dm_embed.add_field(name=self.i18n.get("DM_OFFICIAL_TITLE", loc), value=self.i18n.get("DM_OFFICIAL_VAL", loc), inline=False)
+        if not is_startup:
+            target_user = inviter
+            if not target_user:
+                try:
+                    target_user = guild.owner or await self.fetch_user(guild.owner_id)
+                except Exception:
+                    target_user = None
 
-                view = discord.ui.View()
-                view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
-                view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
-                view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+            if target_user and not target_user.bot:
+                try:
+                    dm_embed = discord.Embed(
+                        title=self.i18n.get("DM_TITLE", loc),
+                        description=self.i18n.get("DM_DESC", loc, user=target_user.display_name, guild=guild.name),
+                        color=0x3498db
+                    )
+                    dm_embed.add_field(name=self.i18n.get("DM_QUICKSTART_TITLE", loc), value=self.i18n.get("DM_QUICKSTART_VAL", loc), inline=False)
+                    dm_embed.add_field(name=self.i18n.get("DM_PERM_TITLE", loc), value=self.i18n.get("DM_PERM_VAL", loc), inline=False)
+                    dm_embed.add_field(name=self.i18n.get("DM_OFFICIAL_TITLE", loc), value=self.i18n.get("DM_OFFICIAL_VAL", loc), inline=False)
 
-                await target_user.send(embed=dm_embed, view=view)
-            except Exception:
-                pass
+                    view = discord.ui.View()
+                    view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+                    view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+                    view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+
+                    await target_user.send(embed=dm_embed, view=view)
+                except Exception:
+                    pass
 
         target_channel = None
         if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
             target_channel = guild.system_channel
         else:
             candidates = ["公告", "general", "一般", "chat", "大廳", "聊天", "welcome", "雑談", "メイン"]
-            for name_pattern in candidates:
-                for channel in guild.text_channels:
-                    if name_pattern in channel.name.lower() and channel.permissions_for(guild.me).send_messages:
-                        target_channel = channel
+            sendable = [c for c in guild.text_channels if c.permissions_for(guild.me).send_messages]
+            for pattern in candidates:
+                for c in sendable:
+                    if pattern in c.name.lower():
+                        target_channel = c
                         break
                 if target_channel:
                     break
-
-        if not target_channel:
-            for channel in guild.text_channels:
-                if channel.permissions_for(guild.me).send_messages:
-                    target_channel = channel
-                    break
+            if not target_channel and sendable:
+                target_channel = sendable[0]
 
         if not target_channel:
             return
@@ -197,7 +196,7 @@ class MusicBot(commands.Bot):
             description=self.i18n.get("WELCOME_DESC", loc),
             color=0x3498db
         )
-        if self.user.avatar:
+        if self.user and self.user.avatar:
             embed.set_thumbnail(url=self.user.avatar.url)
 
         embed.add_field(name=self.i18n.get("WELCOME_TUTORIAL_TITLE", loc), value=self.i18n.get("WELCOME_TUTORIAL_VAL", loc), inline=False)
@@ -216,11 +215,18 @@ class MusicBot(commands.Bot):
             pass
 
     async def _broadcast_startup_announcements(self):
-        for guild in self.guilds:
-            try:
-                await self.send_welcome_announcement(guild)
-            except Exception:
-                pass
+        sem = asyncio.Semaphore(5)
+
+        async def _safe_send(guild: discord.Guild):
+            async with sem:
+                try:
+                    await self.send_welcome_announcement(guild, is_startup=True)
+                except Exception:
+                    pass
+
+        tasks = [_safe_send(g) for g in self.guilds]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
