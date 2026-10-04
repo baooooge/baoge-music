@@ -334,68 +334,6 @@ async def play(interaction: discord.Interaction, search: str):
     else:
         await interaction.followup.send(bot.i18n.get("ADDED_BATCH", loc, count=len(tracks)))
 
-@bot.tree.command(name="broadcast", description="[Owner Only] Broadcast announcement to all guilds")
-@app_commands.describe(message="Announcement text")
-async def broadcast(interaction: discord.Interaction, message: Optional[str] = None):
-    if not await bot.is_owner(interaction.user):
-        return await interaction.response.send_message("Only bot owner can use this.", ephemeral=True)
-
-    await interaction.response.defer(ephemeral=True)
-    success = 0
-    failed = 0
-
-    default_desc = (
-        "由於近期使用量在短時間內暴增，團隊正在緊急排查並修復各項系統問題，近期後端將會頻繁進行熱修復與重啟維護。\n\n"
-        "為避免播歌中斷時無法掌握狀況，請所有使用者務必加入官方 Discord，即時獲取重啟進度與更新通知。"
-    )
-
-    embed = discord.Embed(
-        title="官方重要維護與更新公告",
-        description=message if message else default_desc,
-        color=0x3498db
-    )
-    embed.add_field(name="官方 Discord 社群", value=f"[點擊此處立即加入]({SUPPORT_INVITE_URL})", inline=False)
-    embed.add_field(name="音樂機器人官網", value=f"[musicbot.bybaoge.com]({OFFICIAL_WEBSITE_URL})", inline=False)
-    embed.add_field(name="贊助支持", value=f"[donate.bybaoge.com]({DONATE_URL})", inline=False)
-    embed.set_footer(text="BaoGe Official Announcement • bybaoge.com")
-
-    b_view = discord.ui.View()
-    b_view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
-    b_view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
-    b_view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
-
-    for guild in bot.guilds:
-        target_channel = None
-        if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
-            target_channel = guild.system_channel
-        else:
-            candidates = ["公告", "general", "一般", "chat", "大廳", "聊天", "welcome"]
-            for name_pattern in candidates:
-                for channel in guild.text_channels:
-                    if name_pattern in channel.name.lower() and channel.permissions_for(guild.me).send_messages:
-                        target_channel = channel
-                        break
-                if target_channel:
-                    break
-
-        if not target_channel:
-            for channel in guild.text_channels:
-                if channel.permissions_for(guild.me).send_messages:
-                    target_channel = channel
-                    break
-
-        if target_channel:
-            try:
-                await target_channel.send(embed=embed, view=b_view)
-                success += 1
-                await asyncio.sleep(0.5)
-            except Exception:
-                failed += 1
-        else:
-            failed += 1
-
-    await interaction.followup.send(f"廣播發送完成。成功: {success} / 失敗: {failed}", ephemeral=True)
-
 async def _set_language_handler(interaction: discord.Interaction, lang: app_commands.Choice[str]):
     bot.guild_locales[interaction.guild_id] = lang.value
     msg = bot.i18n.get("LANG_SWITCHED", lang.value)
