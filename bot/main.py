@@ -25,8 +25,10 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
     now = time.time()
     if user_id in _MEMBERSHIP_CACHE:
         cached_time, is_member = _MEMBERSHIP_CACHE[user_id]
-        if now - cached_time < 600:
-            return is_member
+        if is_member and (now - cached_time < 600):
+            return True
+        if not is_member and (now - cached_time < 3):
+            return False
 
     official_guild = bot.get_guild(SUPPORT_GUILD_ID)
     if not official_guild:
@@ -42,12 +44,14 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
 
     try:
         member = await official_guild.fetch_member(user_id)
-        is_valid = member is not None
-        _MEMBERSHIP_CACHE[user_id] = (now, is_valid)
-        return is_valid
+        if member:
+            _MEMBERSHIP_CACHE[user_id] = (now, True)
+            return True
     except Exception:
-        _MEMBERSHIP_CACHE[user_id] = (now, False)
-        return False
+        pass
+
+    _MEMBERSHIP_CACHE[user_id] = (now, False)
+    return False
 
 class LocalizationManager:
     def __init__(self):
@@ -262,6 +266,18 @@ class MusicBot(commands.Bot):
                 pass
 
         await self.send_welcome_announcement(guild, inviter=inviter)
+
+    async def on_member_join(self, member: discord.Member):
+        if member.guild.id == SUPPORT_GUILD_ID:
+            _MEMBERSHIP_CACHE[member.id] = (time.time(), True)
+
+    async def on_member_remove(self, member: discord.Member):
+        if member.guild.id == SUPPORT_GUILD_ID:
+            _MEMBERSHIP_CACHE.pop(member.id, None)
+
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        if after.guild.id == SUPPORT_GUILD_ID:
+            _MEMBERSHIP_CACHE[after.id] = (time.time(), True)
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
