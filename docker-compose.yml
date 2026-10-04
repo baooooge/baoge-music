@@ -3,7 +3,10 @@ services:
     build: .
     container_name: baoge-music
     restart: always
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
     env_file:
       - .env
-    volumes:
-      - ./bot:/app/bot:rw
+    environment:
+      - TZ=Asia/Taipei

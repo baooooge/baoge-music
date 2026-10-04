@@ -1,18 +1,34 @@
+import os
 import asyncio
 import json
 import re
+import time
 from typing import Dict, Any, List, Optional
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 import aiohttp
+import requests
 from bs4 import BeautifulSoup
 import yt_dlp
 
 class UniversalResolver:
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
         }
+        
+        cookie_path = "/app/data/cookies.txt" if os.path.exists("/app/data/cookies.txt") else (
+            "cookies.txt" if os.path.exists("cookies.txt") else None
+        )
+
+        youtube_extractor_args = {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb"]
+            }
+        }
+
         self.ydl_opts_meta = {
             "format": "bestaudio/best",
             "quiet": True,
@@ -20,16 +36,38 @@ class UniversalResolver:
             "default_search": "ytsearch",
             "extract_flat": "in_playlist",
             "playlistend": 100,
-            "http_headers": self.headers
+            "extractor_retries": 3,
+            "socket_timeout": 10,
+            "http_headers": self.headers,
+            "extractor_args": youtube_extractor_args
         }
+        if cookie_path:
+            self.ydl_opts_meta["cookiefile"] = cookie_path
+
         self.ydl_opts_stream = {
-            "format": "bestaudio/best",
+            "format": "ba[protocol^=http]/ba/b",
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
-            "http_headers": self.headers
+            "extractor_retries": 3,
+            "socket_timeout": 10,
+            "http_headers": self.headers,
+            "extractor_args": youtube_extractor_args
         }
+        if cookie_path:
+            self.ydl_opts_stream["cookiefile"] = cookie_path
+
+        self.executor = ThreadPoolExecutor(max_workers=8)
+        self._meta_cache = OrderedDict()
+        self._stream_cache = OrderedDict()
+        self._cache_lock = asyncio.Lock()
+
+        self.kkbox_client_id = os.getenv("KKBOX_CLIENT_ID", "88cf1cd177fe3280a72152b4e88607e6")
+        self.kkbox_client_secret = os.getenv("KKBOX_CLIENT_SECRET", "5300abe69e4d3a18fff85035dd8c429d")
+        self.kkbox_cookie = os.getenv("KKBOX_COOKIE", "")
+        self._kkbox_token = None
+        self._kkbox_token_expiry = 0
 
     async def get_search_suggestions(self, current: str) -> List[str]:
         if not current or current.startswith("http"):
@@ -50,15 +88,32 @@ class UniversalResolver:
 
     async def resolve_metadata_batch(self, query: str) -> List[Dict[str, Any]]:
         query = query.strip()
+        now = time.time()
+        async with self._cache_lock:
+            if query in self._meta_cache:
+                cached_time, cached_val = self._meta_cache[query]
+                if now - cached_time < 7200:
+                    return cached_val
+                del self._meta_cache[query]
+
+        res = []
         if "streetvoice.com" in query:
-            return await self._resolve_streetvoice(query)
-        if "kkbox.com" in query:
-            return await self._resolve_kkbox(query)
-        if "open.spotify.com" in query:
-            return await self._resolve_spotify(query)
-        if "music.apple.com" in query:
-            return await self._resolve_apple_music(query)
-        return await self._resolve_raw_search(query)
+            res = await self._resolve_streetvoice(query)
+        elif "kkbox.com" in query:
+            res = await self._resolve_kkbox(query)
+        elif "open.spotify.com" in query:
+            res = await self._resolve_spotify(query)
+        elif "music.apple.com" in query:
+            res = await self._resolve_apple_music(query)
+        else:
+            res = await self._resolve_raw_search(query)
+
+        if res:
+            async with self._cache_lock:
+                if len(self._meta_cache) > 2000:
+                    self._meta_cache.popitem(last=False)
+                self._meta_cache[query] = (now, res)
+        return res
 
     async def _resolve_streetvoice(self, url: str) -> List[Dict[str, Any]]:
         clean_url = url.split("?")[0]
@@ -125,73 +180,215 @@ class UniversalResolver:
 
         return []
 
+    async def _get_kkbox_token(self) -> Optional[str]:
+        now = time.time()
+        if self._kkbox_token and now < (self._kkbox_token_expiry - 60):
+            return self._kkbox_token
+        if not self.kkbox_client_id or not self.kkbox_client_secret:
+            return None
+        url = "https://account.kkbox.com/oauth2/token"
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": self.kkbox_client_id,
+            "client_secret": self.kkbox_client_secret
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=data, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        payload = await resp.json()
+                        self._kkbox_token = payload.get("access_token")
+                        expires_in = int(payload.get("expires_in", 3600))
+                        self._kkbox_token_expiry = now + expires_in
+                        return self._kkbox_token
+        except Exception:
+            pass
+        return None
+
+    async def _resolve_kkbox_api(self, url: str) -> List[Dict[str, Any]]:
+        token = await self._get_kkbox_token()
+        if not token:
+            return []
+        headers = {"Authorization": f"Bearer {token}"}
+        clean_url = url.split("?")[0].rstrip("/")
+        m_pl = re.search(r"/playlist/([a-zA-Z0-9_\-]+)", clean_url)
+        m_album = re.search(r"/album/([a-zA-Z0-9_\-]+)", clean_url)
+        m_song = re.search(r"/song/([a-zA-Z0-9_\-]+)", clean_url)
+        results = []
+
+        try:
+            async with aiohttp.ClientSession(headers=headers) as session:
+                if m_pl:
+                    p_id = m_pl.group(1)
+                    api_urls = [
+                        f"https://api.kkbox.com/v1.1/shared-playlists/{p_id}/tracks?territory=TW&limit=100",
+                        f"https://api.kkbox.com/v1.1/featured-playlists/{p_id}/tracks?territory=TW&limit=100"
+                    ]
+                    for a_url in api_urls:
+                        async with session.get(a_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            if resp.status == 200:
+                                payload = await resp.json()
+                                for item in payload.get("data", []):
+                                    name = item.get("name", "")
+                                    artist = item.get("album", {}).get("artist", {}).get("name", "")
+                                    q = f"{name} {artist}".strip() if artist else name
+                                    if q:
+                                        results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+                                if results:
+                                    return results
+                elif m_album:
+                    a_id = m_album.group(1)
+                    api_url = f"https://api.kkbox.com/v1.1/albums/{a_id}/tracks?territory=TW&limit=100"
+                    async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            payload = await resp.json()
+                            for item in payload.get("data", []):
+                                name = item.get("name", "")
+                                artist = item.get("album", {}).get("artist", {}).get("name", "")
+                                q = f"{name} {artist}".strip() if artist else name
+                                if q:
+                                    results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+                            return results
+                elif m_song:
+                    s_id = m_song.group(1)
+                    api_url = f"https://api.kkbox.com/v1.1/tracks/{s_id}?territory=TW"
+                    async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            item = await resp.json()
+                            name = item.get("name", "")
+                            artist = item.get("album", {}).get("artist", {}).get("name", "")
+                            q = f"{name} {artist}".strip() if artist else name
+                            if q:
+                                return [{"title": q, "search_query": q, "webpage_url": clean_url}]
+        except Exception:
+            pass
+        return results
+
     async def _resolve_kkbox(self, url: str) -> List[Dict[str, Any]]:
+        api_results = await self._resolve_kkbox_api(url)
+        if api_results:
+            return api_results[:100]
+
         clean_url = url.split("?")[0]
-        match = re.search(r"kkbox\.com/(?:[a-z]{2}/[a-z]{2}/)?(track|song|album|playlist)/([a-zA-Z0-9_\-]+)", clean_url)
-        if not match:
+        results = []
+        loop = asyncio.get_running_loop()
+
+        def _fetch_html():
+            session = requests.Session()
+            req_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Referer": "https://www.kkbox.com/"
+            }
+            if self.kkbox_cookie:
+                req_headers["Cookie"] = self.kkbox_cookie
+            session.headers.update(req_headers)
+            try:
+                resp = session.get(clean_url, timeout=10)
+                if resp.status_code == 200:
+                    return resp.text
+            except Exception:
+                pass
+            return ""
+
+        html = await loop.run_in_executor(self.executor, _fetch_html)
+        if not html:
             return []
 
-        item_type, item_id = match.groups()
-        widget_type = "song" if item_type in ["track", "song"] else item_type
-        widget_url = f"https://widget.kkbox.com/v1/?id={item_id}&type={widget_type}&terr=TW&lang=TC"
-
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.get(widget_url) as resp:
-                if resp.status != 200:
-                    return []
-                html = await resp.text()
-
-        results = []
         soup = BeautifulSoup(html, "html.parser")
+
+        for s in soup.find_all("script", type="application/ld+json"):
+            if not s.string:
+                continue
+            try:
+                data = json.loads(s.string)
+                items = data if isinstance(data, list) else [data]
+                for node in items:
+                    if node.get("@type") == "MusicPlaylist" and "track" in node:
+                        for tr in node["track"]:
+                            t_name = tr.get("name", "").strip()
+                            art = tr.get("byArtist", {}).get("name", "").strip() if isinstance(tr.get("byArtist"), dict) else ""
+                            q = f"{t_name} {art}".strip() if art else t_name
+                            if q and q not in [r["title"] for r in results]:
+                                results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+                    elif node.get("@type") == "MusicRecording":
+                        t_name = node.get("name", "").strip()
+                        art = node.get("byArtist", {}).get("name", "").strip() if isinstance(node.get("byArtist"), dict) else ""
+                        q = f"{t_name} {art}".strip() if art else t_name
+                        if q and q not in [r["title"] for r in results]:
+                            results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+            except Exception:
+                pass
+
+        if results:
+            return results[:100]
 
         script = soup.find("script", id="__NEXT_DATA__")
         if script and script.string:
             try:
                 data = json.loads(script.string)
                 props = data.get("props", {}).get("pageProps", {})
-                init_data = props.get("initData", {})
+                init_data = props.get("initData", {}) or props.get("playlist", {}) or props.get("album", {}) or props
 
-                if widget_type == "song":
-                    song_name = init_data.get("name") or init_data.get("song_name") or ""
-                    artist_name = init_data.get("artist_name") or init_data.get("artist", {}).get("name") or ""
-                    q = f"{song_name} {artist_name}".strip() if artist_name else song_name
+                if "song_name" in init_data or ("name" in init_data and "tracks" not in init_data):
+                    s_name = init_data.get("name") or init_data.get("song_name") or ""
+                    artist = init_data.get("artist_name") or init_data.get("artist", {}).get("name") or ""
+                    q = f"{s_name} {artist}".strip() if artist else s_name
                     if q:
                         return [{"title": q, "search_query": q, "webpage_url": clean_url}]
-                else:
-                    tracks = init_data.get("tracks", {}).get("data", []) or init_data.get("tracks", []) or []
-                    for t in tracks[:100]:
-                        s_name = t.get("name") or t.get("song_name") or ""
-                        a_name = t.get("artist_name") or t.get("artist", {}).get("name") or ""
+
+                track_items = []
+                for key in ["tracks", "trackList", "songs", "data"]:
+                    val = init_data.get(key)
+                    if isinstance(val, dict):
+                        track_items = val.get("data", []) or val.get("items", [])
+                        if track_items:
+                            break
+                    elif isinstance(val, list):
+                        track_items = val
+                        break
+
+                if isinstance(track_items, list):
+                    for item in track_items:
+                        if not isinstance(item, dict):
+                            continue
+                        s_name = item.get("name") or item.get("song_name") or item.get("title") or ""
+                        artist_raw = item.get("artist_name") or item.get("artist") or {}
+                        a_name = artist_raw.get("name", "") if isinstance(artist_raw, dict) else str(artist_raw)
                         q = f"{s_name} {a_name}".strip() if a_name else s_name
                         if q and q not in [r["title"] for r in results]:
                             results.append({"title": q, "search_query": q, "webpage_url": clean_url})
-                    if results:
-                        return results
             except Exception:
                 pass
-
-        track_items = soup.find_all(class_=re.compile(r"track|song-item|item", re.IGNORECASE))
-        for item in track_items:
-            title_el = item.find(class_=re.compile(r"name|title", re.IGNORECASE))
-            artist_el = item.find(class_=re.compile(r"artist|singer", re.IGNORECASE))
-            if title_el:
-                s_name = title_el.get_text().strip()
-                a_name = artist_el.get_text().strip() if artist_el else ""
-                q = f"{s_name} {a_name}".strip() if a_name else s_name
-                if q and "KKBOX" not in q and q not in [r["title"] for r in results]:
-                    results.append({"title": q, "search_query": q, "webpage_url": clean_url})
 
         if results:
             return results[:100]
 
-        title_tag = soup.find("title")
-        if title_tag and title_tag.string:
-            raw_title = title_tag.string.strip()
-            cleaned = re.sub(r"[\s\-\|]+(KKBOX|Widget|線上音樂).*$", "", raw_title, flags=re.IGNORECASE).strip()
-            if cleaned and "KKBOX" not in cleaned:
-                return [{"title": cleaned, "search_query": cleaned, "webpage_url": clean_url}]
+        song_elements = soup.find_all("a", href=re.compile(r"/song/"))
+        for el in song_elements:
+            s_name = el.get_text().strip()
+            if not s_name:
+                continue
+            parent = el.find_parent(["li", "tr", "div"])
+            a_name = ""
+            if parent:
+                art_el = parent.find("a", href=re.compile(r"/artist/"))
+                if art_el:
+                    a_name = art_el.get_text().strip()
+            q = f"{s_name} {a_name}".strip() if a_name else s_name
+            if q and q not in [r["title"] for r in results]:
+                results.append({"title": q, "search_query": q, "webpage_url": clean_url})
 
-        return []
+        if not results:
+            og_title = soup.find("meta", property="og:title")
+            if og_title and og_title.get("content"):
+                t = og_title["content"].split(" - ")[0].strip()
+                if t and "KKBOX" not in t:
+                    results.append({"title": t, "search_query": t, "webpage_url": clean_url})
+
+        return results[:100]
 
     async def _resolve_spotify(self, url: str) -> List[Dict[str, Any]]:
         clean_url = url.split("?")[0]
@@ -251,10 +448,9 @@ class UniversalResolver:
         u = uploader.lower()
 
         negatives = [
-            "live", "現場", "演唱會", "concert", "fancam", "直拍", "cover", "翻唱",
-            "reaction", "反應", "remix", "慢速", "sped up", "slowed", "bass boosted",
-            "1小時", "1 hour", "10 hours", "loop", "inst", "instrumental", "伴奏",
-            "karaoke", "純音樂"
+            "live", "concert", "fancam", "cover", "reaction", "remix", 
+            "sped up", "slowed", "bass boosted", "1 hour", "10 hours", 
+            "loop", "inst", "instrumental", "karaoke"
         ]
         for neg in negatives:
             if neg in t:
@@ -377,6 +573,19 @@ class UniversalResolver:
         return 0.0
 
     async def get_live_stream(self, target: str) -> Optional[Dict[str, Any]]:
+        now = time.time()
+        async with self._cache_lock:
+            if target in self._stream_cache:
+                cached_time, cached_val = self._stream_cache[target]
+                if now - cached_time < 3600:
+                    return cached_val
+                del self._stream_cache[target]
+
+        reconnect_flags = (
+            "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+            "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
+        )
+
         if "streetvoice.com" in target:
             song_match = re.search(r"/songs/(\d+)", target)
             if song_match:
@@ -397,9 +606,9 @@ class UniversalResolver:
                                     user_agent = self.headers["User-Agent"]
                                     before_opts = (
                                         f'-headers "User-Agent: {user_agent}\r\nReferer: {target}\r\nOrigin: https://streetvoice.com\r\n" '
-                                        '-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+                                        f'{reconnect_flags}'
                                     )
-                                    return {
+                                    res_dict = {
                                         "id": song_id,
                                         "title": "StreetVoice Track",
                                         "uploader": "StreetVoice",
@@ -411,6 +620,11 @@ class UniversalResolver:
                                         "before_options": before_opts,
                                         "start_offset": 0.0
                                     }
+                                    async with self._cache_lock:
+                                        if len(self._stream_cache) > 2000:
+                                            self._stream_cache.popitem(last=False)
+                                        self._stream_cache[target] = (now, res_dict)
+                                    return res_dict
                 except Exception:
                     pass
 
@@ -436,7 +650,7 @@ class UniversalResolver:
                 return ydl.extract_info(query, download=False)
 
         try:
-            info = await loop.run_in_executor(None, _extract)
+            info = await loop.run_in_executor(self.executor, _extract)
             if not info:
                 return None
             if "entries" in info and info["entries"]:
@@ -463,12 +677,12 @@ class UniversalResolver:
             if is_bili:
                 before_opts = (
                     f'-headers "User-Agent: {user_agent}\r\nReferer: https://www.bilibili.com/\r\nOrigin: https://www.bilibili.com\r\n" '
-                    '-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+                    f'{reconnect_flags}'
                 )
             else:
                 before_opts = (
                     f'-headers "User-Agent: {user_agent}\r\n" '
-                    '-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+                    f'{reconnect_flags}'
                 )
 
             if start_offset > 0.0:
@@ -486,7 +700,7 @@ class UniversalResolver:
 
             duration = int(info.get("duration") or 0)
 
-            return {
+            res_dict = {
                 "id": video_id,
                 "title": title,
                 "uploader": info.get("uploader", "Unknown"),
@@ -498,6 +712,11 @@ class UniversalResolver:
                 "before_options": before_opts,
                 "start_offset": start_offset
             }
+            async with self._cache_lock:
+                if len(self._stream_cache) > 2000:
+                    self._stream_cache.popitem(last=False)
+                self._stream_cache[target] = (now, res_dict)
+            return res_dict
         except Exception:
             return None
 

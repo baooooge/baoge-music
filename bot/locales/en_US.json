@@ -1,5 +1,5 @@
 {
-  "PRESENCE_IDLE": "/play | bybaoge.com",
+  "PRESENCE_IDLE": "/play | musicbot.bybaoge.com",
   "DM_TITLE": "Welcome to BaoGe Music Bot!",
   "DM_DESC": "Hello **{user}**! Music service is now ready in **{guild}**.\nHere is the quick administration guide:",
   "DM_QUICKSTART_TITLE": "Quick Start",
@@ -7,7 +7,7 @@
   "DM_PERM_TITLE": "Permissions & Control",
   "DM_PERM_VAL": "• Available to all members by default; manage permissions under Server Settings -> Integrations.\n• Administrators and requesters hold skip and queue control privileges.",
   "DM_OFFICIAL_TITLE": "Official Community",
-  "DM_OFFICIAL_VAL": "• [Official Website](https://bybaoge.com)\n• [Official Discord](https://discord.gg/92BB9zGRmS)",
+  "DM_OFFICIAL_VAL": "• [Official Website](https://musicbot.bybaoge.com/)\n• [Donate](https://donate.bybaoge.com/)\n• [Official Discord](https://discord.gg/92BB9zGRmS)",
   "WELCOME_TITLE": "BaoGe Music Bot is Online!",
   "WELCOME_DESC": "Universal platform streaming, lossless HLS extraction, and pure audio filters are ready!",
   "WELCOME_TUTORIAL_TITLE": "Guide",
@@ -15,7 +15,7 @@
   "WELCOME_HIGHLIGHT_TITLE": "Highlights",
   "WELCOME_HIGHLIGHT_VAL": "• **Platforms**: YouTube, Bilibili, StreetVoice, KKBOX, Spotify, Apple Music\n• **Purity Filter**: Eliminates live recordings and low-quality covers\n• **Autoplay**: Seamless radio transitions upon queue completion",
   "WELCOME_OFFICIAL_TITLE": "Official",
-  "WELCOME_OFFICIAL_VAL": "• [Official Website](https://bybaoge.com)\n• [Official Discord](https://discord.gg/92BB9zGRmS)\n• Questions or suggestions? Join our official community!",
+  "WELCOME_OFFICIAL_VAL": "• [Official Website](https://musicbot.bybaoge.com/)\n• [Donate](https://donate.bybaoge.com/)\n• [Official Discord](https://discord.gg/92BB9zGRmS)\n• Questions or suggestions? Join our official community!",
   "FOOTER_TEXT": "BaoGe Music Service • Guild ID: {guild_id}",
   "PANEL_TITLE": "Now Playing",
   "PANEL_PROGRESS": "Progress",
@@ -51,5 +51,7 @@
   "NO_AUDIO_FOUND": "No playable audio stream found.",
   "ADDED_SINGLE": "Added to queue: **{title}**",
   "ADDED_BATCH": "Added **{count}** tracks to queue!",
-  "LANG_SWITCHED": "Server language has been set to: **English (US)**"
+  "LANG_SWITCHED": "Server language has been set to: **English (US)**",
+  "AUTH_REQUIRED_TITLE": "Please Join Official Discord Community",
+  "AUTH_REQUIRED_DESC": "Due to a surge in usage, our team is actively patching reported bugs. Frequent service restarts and maintenance will occur.\n\nTo stay updated with restart notifications and bug fixes, you must join our official Discord server before using the bot.\n\n**[Join Official Discord]({invite_url})**\n**[Official Website]({website_url})**\n**[Donate & Support]({donate_url})**\n\nYou will be able to play music immediately after joining."
 }

@@ -45,6 +45,11 @@ EQ_LABELS = {
     }
 }
 
+DEFAULT_BEFORE_OPTS = (
+    "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+    "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
+)
+
 def render_progress_bar(current: int, total: int, length: int = 14) -> str:
     if total <= 0:
         return f"`{current // 60:02d}:{current % 60:02d}` ──────────────"
@@ -108,10 +113,10 @@ class SkipToModal(discord.ui.Modal):
         if self.player.voice_client:
             self.player.voice_client.stop()
         msgs = {
-            "zh_TW": f"⏩ 已跳至第 **{target_index}** 首歌曲。",
-            "zh_CN": f"⏩ 已跳至第 **{target_index}** 首歌曲。",
-            "en_US": f"⏩ Skipped to track **#{target_index}**.",
-            "ja_JP": f"⏩ **#{target_index}** 曲目へジャンプしました。"
+            "zh_TW": f"已跳至第 {target_index} 首歌曲。",
+            "zh_CN": f"已跳至第 {target_index} 首歌曲。",
+            "en_US": f"Skipped to track #{target_index}.",
+            "ja_JP": f"#{target_index} 曲目へジャンプしました。"
         }
         await interaction.response.send_message(msgs.get(loc, "Skipped."), ephemeral=True)
 
@@ -136,10 +141,10 @@ class EQSelect(discord.ui.Select):
         loc = self.player.locale
         label = EQ_LABELS.get(loc, EQ_LABELS["zh_TW"])[selected]
         msgs = {
-            "zh_TW": f"等化器效果已切換為：**{label}**",
-            "zh_CN": f"均衡器效果已切换为：**{label}**",
-            "en_US": f"Equalizer preset changed to: **{label}**",
-            "ja_JP": f"イコライザー設定を **{label}** に変更しました"
+            "zh_TW": f"等化器效果已切換為：{label}",
+            "zh_CN": f"均衡器效果已切换为：{label}",
+            "en_US": f"Equalizer preset changed to: {label}",
+            "ja_JP": f"イコライザー設定を {label} に変更しました"
         }
         await interaction.response.send_message(msgs.get(loc, "EQ changed."), ephemeral=True)
         await self.player.update_panel_inplace()
@@ -167,11 +172,11 @@ class PlayerControls(discord.ui.View):
 
         self.add_item(EQSelect(player))
 
-    @discord.ui.button(label="⏮️ 上一首", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="上一首", style=discord.ButtonStyle.secondary, row=0)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.player.play_previous(interaction)
 
-    @discord.ui.button(label="⏯️ 暫停/繼續", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="暫停/繼續", style=discord.ButtonStyle.primary, row=0)
     async def play_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         loc = self.player.locale
         if not self.player.voice_client:
@@ -204,27 +209,27 @@ class PlayerControls(discord.ui.View):
             await interaction.response.send_message(msgs.get(loc, "Paused."), ephemeral=True)
         await self.player.update_panel_inplace()
 
-    @discord.ui.button(label="⏭️ 跳過", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="跳過", style=discord.ButtonStyle.secondary, row=0)
     async def skip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.player.process_skip(interaction)
 
-    @discord.ui.button(label="⏪ -15s", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="-15s", style=discord.ButtonStyle.secondary, row=0)
     async def rewind_15(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.player.voice_client or not self.player.current:
             return await interaction.response.send_message("Not playing.", ephemeral=True)
         current_pos = max(0, int(time.time() - self.player.track_start_time))
         new_pos = max(0, current_pos - 15)
         await self.player.seek(new_pos)
-        await interaction.response.send_message(f"⏪ {new_pos // 60:02d}:{new_pos % 60:02d}", ephemeral=True)
+        await interaction.response.send_message(f"{new_pos // 60:02d}:{new_pos % 60:02d}", ephemeral=True)
 
-    @discord.ui.button(label="⏩ +15s", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="+15s", style=discord.ButtonStyle.secondary, row=0)
     async def fast_forward_15(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.player.voice_client or not self.player.current:
             return await interaction.response.send_message("Not playing.", ephemeral=True)
         current_pos = max(0, int(time.time() - self.player.track_start_time))
         new_pos = current_pos + 15
         await self.player.seek(new_pos)
-        await interaction.response.send_message(f"⏩ {new_pos // 60:02d}:{new_pos % 60:02d}", ephemeral=True)
+        await interaction.response.send_message(f"{new_pos // 60:02d}:{new_pos % 60:02d}", ephemeral=True)
 
     @discord.ui.button(label="跳至指定", style=discord.ButtonStyle.secondary, row=1)
     async def skipto_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -248,10 +253,10 @@ class PlayerControls(discord.ui.View):
         i18n = self.player.bot.i18n
         labels = {"off": i18n.get("MODE_OFF", loc), "single": i18n.get("MODE_SINGLE", loc), "queue": i18n.get("MODE_QUEUE", loc)}
         msgs = {
-            "zh_TW": f"循環模式切換為：**{labels[self.player.loop_mode]}**",
-            "zh_CN": f"循环模式切换为：**{labels[self.player.loop_mode]}**",
-            "en_US": f"Loop mode set to: **{labels[self.player.loop_mode]}**",
-            "ja_JP": f"ループモードを **{labels[self.player.loop_mode]}** に設定しました"
+            "zh_TW": f"循環模式切換為：{labels[self.player.loop_mode]}",
+            "zh_CN": f"循环模式切换为：{labels[self.player.loop_mode]}",
+            "en_US": f"Loop mode set to: {labels[self.player.loop_mode]}",
+            "ja_JP": f"ループモードを {labels[self.player.loop_mode]} に設定しました"
         }
         await interaction.response.send_message(msgs.get(loc, "Loop mode updated."), ephemeral=True)
         await self.player.update_panel_inplace()
@@ -323,10 +328,10 @@ class PlayerControls(discord.ui.View):
         if self.player.voice_client and self.player.voice_client.source:
             self.player.voice_client.source.volume = new_vol
         msgs = {
-            "zh_TW": f"音量調整為：**{int(new_vol * 100)}%**",
-            "zh_CN": f"音量调整为：**{int(new_vol * 100)}%**",
-            "en_US": f"Volume set to: **{int(new_vol * 100)}%**",
-            "ja_JP": f"音量を **{int(new_vol * 100)}%** に変更しました"
+            "zh_TW": f"音量調整為：{int(new_vol * 100)}%",
+            "zh_CN": f"音量调整为：{int(new_vol * 100)}%",
+            "en_US": f"Volume set to: {int(new_vol * 100)}%",
+            "ja_JP": f"音量を {int(new_vol * 100)}% に変更しました"
         }
         await interaction.response.send_message(msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
         await self.player.update_panel_inplace()
@@ -339,10 +344,10 @@ class PlayerControls(discord.ui.View):
         if self.player.voice_client and self.player.voice_client.source:
             self.player.voice_client.source.volume = new_vol
         msgs = {
-            "zh_TW": f"音量調整為：**{int(new_vol * 100)}%**",
-            "zh_CN": f"音量调整为：**{int(new_vol * 100)}%**",
-            "en_US": f"Volume set to: **{int(new_vol * 100)}%**",
-            "ja_JP": f"音量を **{int(new_vol * 100)}%** に変更しました"
+            "zh_TW": f"音量調整為：{int(new_vol * 100)}%",
+            "zh_CN": f"音量调整为：{int(new_vol * 100)}%",
+            "en_US": f"Volume set to: {int(new_vol * 100)}%",
+            "ja_JP": f"音量を {int(new_vol * 100)}% に変更しました"
         }
         await interaction.response.send_message(msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
         await self.player.update_panel_inplace()
@@ -354,10 +359,10 @@ class PlayerControls(discord.ui.View):
         if self.player.voice_client and self.player.voice_client.source:
             self.player.voice_client.source.volume = 1.0
         msgs = {
-            "zh_TW": "音量已重設為 **100%**",
-            "zh_CN": "音量已重置为 **100%**",
-            "en_US": "Volume reset to **100%**",
-            "ja_JP": "音量を **100%** にリセットしました"
+            "zh_TW": "音量已重設為 100%",
+            "zh_CN": "音量已重置为 100%",
+            "en_US": "Volume reset to 100%",
+            "ja_JP": "音量を 100% にリセットしました"
         }
         await interaction.response.send_message(msgs.get(loc, "Volume reset."), ephemeral=True)
         await self.player.update_panel_inplace()
@@ -479,7 +484,7 @@ class GuildPlayer:
     async def _ticker_loop(self):
         while not self.bot.is_closed():
             try:
-                await asyncio.sleep(5)
+                await asyncio.sleep(15)
                 if not self.voice_client or not self.current or not self.panel_message:
                     continue
                 if self.voice_client.is_playing():
@@ -502,7 +507,7 @@ class GuildPlayer:
         if eq_filter:
             base_opts += f' -af "{eq_filter}"'
 
-        clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5")).strip()
+        clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", DEFAULT_BEFORE_OPTS)).strip()
         before_opts = f"{clean_before} -ss {seconds}"
 
         raw_source = discord.FFmpegPCMAudio(
@@ -562,10 +567,10 @@ class GuildPlayer:
         self.voice_client.stop()
         if interaction:
             msgs = {
-                "zh_TW": f"⏮️ 正在切換至上一首：**{prev_item['title']}**",
-                "zh_CN": f"⏮️ 正在切换至上一首：**{prev_item['title']}**",
-                "en_US": f"⏮️ Playing previous track: **{prev_item['title']}**",
-                "ja_JP": f"⏮️ 前の曲を再生します：**{prev_item['title']}**"
+                "zh_TW": f"正在切換至上一首：{prev_item['title']}",
+                "zh_CN": f"正在切换至上一首：{prev_item['title']}",
+                "en_US": f"Playing previous track: {prev_item['title']}",
+                "ja_JP": f"前の曲を再生します：{prev_item['title']}"
             }
             await interaction.response.send_message(msgs.get(loc, f"Playing previous: {prev_item['title']}"))
 
@@ -596,10 +601,10 @@ class GuildPlayer:
             }
             r_str = roles.get(loc, "Admin")
             msgs = {
-                "zh_TW": f"⏭️ {r_str} <@{user.id}> 已強制跳過此曲目。",
-                "zh_CN": f"⏭️ {r_str} <@{user.id}> 已强制跳过此曲目。",
-                "en_US": f"⏭️ {r_str} <@{user.id}> force-skipped the track.",
-                "ja_JP": f"⏭️ {r_str} <@{user.id}> が曲をスキップしました。"
+                "zh_TW": f"{r_str} <@{user.id}> 已強制跳過此曲目。",
+                "zh_CN": f"{r_str} <@{user.id}> 已强制跳过此曲目。",
+                "en_US": f"{r_str} <@{user.id}> force-skipped the track.",
+                "ja_JP": f"{r_str} <@{user.id}> が曲をスキップしました。"
             }
             return await interaction.response.send_message(msgs.get(loc, "Skipped track."))
 
@@ -609,10 +614,10 @@ class GuildPlayer:
             self.skip_votes.clear()
             self.voice_client.stop()
             msgs = {
-                "zh_TW": "⏭️ 已跳過此曲目。",
-                "zh_CN": "⏭️ 已跳过此曲目。",
-                "en_US": "⏭️ Skipped track.",
-                "ja_JP": "⏭️ 曲をスキップしました。"
+                "zh_TW": "已跳過此曲目。",
+                "zh_CN": "已跳过此曲目。",
+                "en_US": "Skipped track.",
+                "ja_JP": "曲をスキップしました。"
             }
             return await interaction.response.send_message(msgs.get(loc, "Skipped."))
 
@@ -639,10 +644,10 @@ class GuildPlayer:
             return await interaction.response.send_message(msgs.get(loc, "Vote passed."))
         else:
             msgs = {
-                "zh_TW": f"跳過投票已記錄：目前 **{len(self.skip_votes)}/{required_votes}** 票。",
-                "zh_CN": f"跳过投票已记录：当前 **{len(self.skip_votes)}/{required_votes}** 票。",
-                "en_US": f"Skip vote registered: **{len(self.skip_votes)}/{required_votes}**.",
-                "ja_JP": f"スキップ投票を受け付けました：現在 **{len(self.skip_votes)}/{required_votes}** 票。"
+                "zh_TW": f"跳過投票已記錄：目前 {len(self.skip_votes)}/{required_votes} 票。",
+                "zh_CN": f"跳过投票已记录：当前 {len(self.skip_votes)}/{required_votes} 票。",
+                "en_US": f"Skip vote registered: {len(self.skip_votes)}/{required_votes}.",
+                "ja_JP": f"スキップ投票を受け付けました：現在 {len(self.skip_votes)}/{required_votes} 票。"
             }
             return await interaction.response.send_message(msgs.get(loc, "Vote recorded."))
 
@@ -739,7 +744,7 @@ class GuildPlayer:
 
                 raw_source = discord.FFmpegPCMAudio(
                     self.current["stream_url"],
-                    before_options=self.current.get("before_options", "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5"),
+                    before_options=self.current.get("before_options", DEFAULT_BEFORE_OPTS),
                     options=base_opts
                 )
                 audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)

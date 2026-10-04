@@ -179,7 +179,7 @@ BaoGe Music Bot 是一款专为录音室级高保真音质设计的 Discord 音�
 ### プロジェクト概要
 BaoGe Music Bot は、スタジオ品質の高音質再生、マルチプラットフォーム解析、および直感的な操作パネルを備えた Discord 音楽ボットです。
 
-### 主な機能
+### 主な功能
 * マルチプラットフォーム対応: YouTube、Bilibili、StreetVoice（HLS 直リンク抽出）、KKBOX（Widget 解析）、Spotify、Apple Music。
 * ピュアオーディオフィルター: ライブ録音（Live）や非公式カバー（Cover）を自動除外し、スタジオマスター音源を再生。
 * 自動連続再生: キュー終了時に公式ラジオミックスから推薦曲を自動再生。

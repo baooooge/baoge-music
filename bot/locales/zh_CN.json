@@ -1,5 +1,5 @@
 {
-  "PRESENCE_IDLE": "/play | bybaoge.com",
+  "PRESENCE_IDLE": "/play | musicbot.bybaoge.com",
   "DM_TITLE": "欢迎使用 BaoGe Music Bot 音乐机器人！",
   "DM_DESC": "你好 **{user}**！机器人服务已于 **{guild}** 就绪。\n以下是管理员快速指南：",
   "DM_QUICKSTART_TITLE": "快速开始",
@@ -7,15 +7,15 @@
   "DM_PERM_TITLE": "权限与管理",
   "DM_PERM_VAL": "• 机器人默认对所有成员开放，可通过服务器设置 -> 整合 -> 应用程序调整权限。\n• 管理员与点播者拥有跳过与队列控制特权。",
   "DM_OFFICIAL_TITLE": "官方资源与社群",
-  "DM_OFFICIAL_VAL": "• [官方网站](https://bybaoge.com)\n• [官方 Discord 服务器](https://discord.gg/92BB9zGRmS)",
+  "DM_OFFICIAL_VAL": "• [官方网站](https://musicbot.bybaoge.com/)\n• [赞助支持](https://donate.bybaoge.com/)\n• [官方 Discord 服务器](https://discord.gg/92BB9zGRmS)",
   "WELCOME_TITLE": "BaoGe Music Bot 音乐机器人已上线！",
   "WELCOME_DESC": "全方位多平台解析、高音质无缝串流与智能原音过滤已就绪！",
   "WELCOME_TUTORIAL_TITLE": "教学",
-  "WELCOME_TUTORIAL_VAL": "1. 加入任一语音频道。\n2. 使用斜杠指令 `/play <歌名/网址>` 即可秒速点歌。\n3. 点歌后将自动生成**全功能控制面板**，直接点击按钮操控（EQ 均衡器、±15s 快进、循环、跳过等）。",
+  "WELCOME_TUTORIAL_VAL": "1. 加入任一语音频道。\n2. 使用斜杠指令 `/play <歌名/网址>` 即可秒速点歌。\n3. 点歌后将自动生成全功能控制面板，直接点击按钮操控（EQ 均衡器、±15s 快进、循环、跳过等）。",
   "WELCOME_HIGHLIGHT_TITLE": "亮点",
   "WELCOME_HIGHLIGHT_VAL": "• **多平台支持**：YouTube、Bilibili、StreetVoice、KKBOX、Spotify、Apple Music\n• **原音纯化过滤**：自动剔除 Live 版与非官方翻唱\n• **智能续播**：播放列表播毕自动衔接推荐曲目",
   "WELCOME_OFFICIAL_TITLE": "官方",
-  "WELCOME_OFFICIAL_VAL": "• [官方网站](https://bybaoge.com)\n• [官方 Discord 服务器](https://discord.gg/92BB9zGRmS)",
+  "WELCOME_OFFICIAL_VAL": "• [官方网站](https://musicbot.bybaoge.com/)\n• [赞助支持](https://donate.bybaoge.com/)\n• [官方 Discord 服务器](https://discord.gg/92BB9zGRmS)",
   "FOOTER_TEXT": "BaoGe Music 服务中 • 服务器 ID: {guild_id}",
   "PANEL_TITLE": "正在播放",
   "PANEL_PROGRESS": "进度",
@@ -51,5 +51,7 @@
   "NO_AUDIO_FOUND": "找不到可播放的音频资源。",
   "ADDED_SINGLE": "已加入队列：**{title}**",
   "ADDED_BATCH": "已批量加入 **{count}** 首曲目至队列！",
-  "LANG_SWITCHED": "服务器语言已切换为：**简体中文**"
+  "LANG_SWITCHED": "服务器语言已切换为：**简体中文**",
+  "AUTH_REQUIRED_TITLE": "请先加入官方 Discord 社群",
+  "AUTH_REQUIRED_DESC": "由于短时间内使用量暴增，我们正在加紧修复近期回报的问题与 Bug，服务器近期将会频繁重启与部署更新。\n\n为了确保您能第一时间接收重启维护、Bug 修复进度及最新公告，使用音乐机器人前请务必加入官方 Discord 社群。\n\n**[点此加入官方 Discord]({invite_url})**\n**[前往机器人官方网站]({website_url})**\n**[赞助支持我们]({donate_url})**\n\n加入后即可立即正常使用点歌功能。"
 }

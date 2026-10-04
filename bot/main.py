@@ -1,13 +1,8 @@
-# Copyright (c) 2026 BaoGe (https://bybaoge.com)
-# All rights reserved.
-#
-# This source code is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
-# Commercial resale or hosting paid services without explicit permission is strictly prohibited.
-# The original author credits, website links, and copyright notices MUST be preserved in all copies.
-
 import os
 import json
 import asyncio
+import random
+import time
 from typing import Optional
 import discord
 from discord import app_commands
@@ -16,6 +11,43 @@ from core.resolver import UniversalResolver
 from core.player import GuildPlayer, QueuePaginator, EQ_LABELS
 
 LOCALES_DIR = "/app/bot/locales" if os.path.exists("/app/bot/locales") else os.path.join(os.path.dirname(__file__), "locales")
+SUPPORT_GUILD_ID = int(os.getenv("SUPPORT_GUILD_ID", 1039860460389941338))
+SUPPORT_INVITE_URL = os.getenv("SUPPORT_INVITE_URL", "https://discord.com/invite/92BB9zGRmS")
+OFFICIAL_WEBSITE_URL = os.getenv("OFFICIAL_WEBSITE_URL", "https://musicbot.bybaoge.com/")
+DONATE_URL = os.getenv("DONATE_URL", "https://donate.bybaoge.com/")
+
+_MEMBERSHIP_CACHE = {}
+
+async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bool:
+    if not SUPPORT_GUILD_ID:
+        return True
+
+    now = time.time()
+    if user_id in _MEMBERSHIP_CACHE:
+        cached_time, is_member = _MEMBERSHIP_CACHE[user_id]
+        if now - cached_time < 600:
+            return is_member
+
+    official_guild = bot.get_guild(SUPPORT_GUILD_ID)
+    if not official_guild:
+        try:
+            official_guild = await bot.fetch_guild(SUPPORT_GUILD_ID)
+        except Exception:
+            return True
+
+    member = official_guild.get_member(user_id)
+    if member:
+        _MEMBERSHIP_CACHE[user_id] = (now, True)
+        return True
+
+    try:
+        member = await official_guild.fetch_member(user_id)
+        is_valid = member is not None
+        _MEMBERSHIP_CACHE[user_id] = (now, is_valid)
+        return is_valid
+    except Exception:
+        _MEMBERSHIP_CACHE[user_id] = (now, False)
+        return False
 
 class LocalizationManager:
     def __init__(self):
@@ -55,6 +87,7 @@ class MusicBot(commands.Bot):
         intents.message_content = True
         intents.voice_states = True
         intents.guilds = True
+        intents.members = True
         super().__init__(command_prefix="!", intents=intents)
         self.resolver = UniversalResolver()
         self.players = {}
@@ -90,38 +123,52 @@ class MusicBot(commands.Bot):
         while not self.is_closed():
             try:
                 active_players = [p for p in self.players.values() if p.voice_client and p.voice_client.is_playing() and p.current]
-                if active_players:
-                    current_track = active_players[0].current.get("title", "Unknown Track")
+                active_count = len(active_players)
+                guild_count = len(self.guilds)
+
+                if active_count > 0:
                     activity = discord.Activity(
                         type=discord.ActivityType.listening,
-                        name=f"{current_track}"
+                        name=f"/play | 正在 {active_count} 個伺服器播放音樂"
                     )
                 else:
                     activity = discord.Activity(
                         type=discord.ActivityType.listening,
-                        name="/play | bybaoge.com"
+                        name=f"/play | 服務於 {guild_count} 個伺服器"
                     )
                 await self.change_presence(activity=activity, status=discord.Status.online)
             except Exception:
                 pass
             await asyncio.sleep(15)
 
-    async def send_welcome_announcement(self, guild: discord.Guild):
+    async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None):
         loc = self.get_guild_locale(guild)
-        try:
-            owner = guild.owner or await self.fetch_user(guild.owner_id)
-            if owner and not owner.bot:
+        target_user = inviter
+        if not target_user:
+            try:
+                target_user = guild.owner or await self.fetch_user(guild.owner_id)
+            except Exception:
+                target_user = None
+
+        if target_user and not target_user.bot:
+            try:
                 dm_embed = discord.Embed(
                     title=self.i18n.get("DM_TITLE", loc),
-                    description=self.i18n.get("DM_DESC", loc, user=owner.display_name, guild=guild.name),
+                    description=self.i18n.get("DM_DESC", loc, user=target_user.display_name, guild=guild.name),
                     color=0x3498db
                 )
                 dm_embed.add_field(name=self.i18n.get("DM_QUICKSTART_TITLE", loc), value=self.i18n.get("DM_QUICKSTART_VAL", loc), inline=False)
                 dm_embed.add_field(name=self.i18n.get("DM_PERM_TITLE", loc), value=self.i18n.get("DM_PERM_VAL", loc), inline=False)
                 dm_embed.add_field(name=self.i18n.get("DM_OFFICIAL_TITLE", loc), value=self.i18n.get("DM_OFFICIAL_VAL", loc), inline=False)
-                await owner.send(embed=dm_embed)
-        except Exception:
-            pass
+
+                view = discord.ui.View()
+                view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+                view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+                view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+
+                await target_user.send(embed=dm_embed, view=view)
+            except Exception:
+                pass
 
         target_channel = None
         if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
@@ -158,24 +205,20 @@ class MusicBot(commands.Bot):
         embed.add_field(name=self.i18n.get("WELCOME_OFFICIAL_TITLE", loc), value=self.i18n.get("WELCOME_OFFICIAL_VAL", loc), inline=False)
         embed.set_footer(text=self.i18n.get("FOOTER_TEXT", loc, guild_id=guild.id))
 
+        guild_view = discord.ui.View()
+        guild_view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+        guild_view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+        guild_view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+
         try:
-            await target_channel.send(embed=embed)
+            await target_channel.send(embed=embed, view=guild_view)
         except Exception:
             pass
 
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
-        for guild in self.guilds:
-            try:
-                self.tree.copy_global_to(guild=guild)
-                await self.tree.sync(guild=guild)
-            except Exception:
-                pass
-            await self.send_welcome_announcement(guild)
-
         if not self.status_task:
             self.status_task = self.loop.create_task(self.dynamic_presence_loop())
-
         print("Ready and listening!")
 
     async def on_guild_join(self, guild: discord.Guild):
@@ -184,7 +227,18 @@ class MusicBot(commands.Bot):
             await self.tree.sync(guild=guild)
         except Exception:
             pass
-        await self.send_welcome_announcement(guild)
+
+        inviter = None
+        if guild.me.guild_permissions.view_audit_log:
+            try:
+                async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.bot_add):
+                    if entry.target and entry.target.id == self.user.id:
+                        inviter = entry.user
+                        break
+            except Exception:
+                pass
+
+        await self.send_welcome_announcement(guild, inviter=inviter)
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
@@ -200,7 +254,7 @@ async def sync(ctx):
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
     global_synced = await bot.tree.sync()
-    await ctx.send(f"✅ Synced {len(global_synced)} commands to all {len(bot.guilds)} guilds!")
+    await ctx.send(f"Synced {len(global_synced)} commands to all {len(bot.guilds)} guilds.")
 
 async def play_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     if not current:
@@ -214,6 +268,19 @@ async def play_autocomplete(interaction: discord.Interaction, current: str) -> l
 async def play(interaction: discord.Interaction, search: str):
     await interaction.response.defer()
     loc = bot.get_guild_locale(interaction.guild)
+
+    is_member = await check_official_guild_membership(bot, interaction.user.id)
+    if not is_member:
+        embed = discord.Embed(
+            title=bot.i18n.get("AUTH_REQUIRED_TITLE", loc),
+            description=bot.i18n.get("AUTH_REQUIRED_DESC", loc, invite_url=SUPPORT_INVITE_URL, website_url=OFFICIAL_WEBSITE_URL, donate_url=DONATE_URL),
+            color=0xe74c3c
+        )
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+        view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+        view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+        return await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     if not interaction.user.voice or not interaction.user.voice.channel:
         return await interaction.followup.send(bot.i18n.get("JOIN_VOICE_FIRST", loc))
@@ -243,6 +310,68 @@ async def play(interaction: discord.Interaction, search: str):
         await interaction.followup.send(bot.i18n.get("ADDED_SINGLE", loc, title=tracks[0]['title']))
     else:
         await interaction.followup.send(bot.i18n.get("ADDED_BATCH", loc, count=len(tracks)))
+
+@bot.tree.command(name="broadcast", description="[Owner Only] Broadcast announcement to all guilds")
+@app_commands.describe(message="Announcement text")
+async def broadcast(interaction: discord.Interaction, message: Optional[str] = None):
+    if not await bot.is_owner(interaction.user):
+        return await interaction.response.send_message("Only bot owner can use this.", ephemeral=True)
+
+    await interaction.response.defer(ephemeral=True)
+    success = 0
+    failed = 0
+
+    default_desc = (
+        "由於近期使用量在短時間內暴增，團隊正在緊急排查並修復各項系統問題，近期後端將會頻繁進行熱修復與重啟維護。\n\n"
+        "為避免播歌中斷時無法掌握狀況，請所有使用者務必加入官方 Discord，即時獲取重啟進度與更新通知。"
+    )
+
+    embed = discord.Embed(
+        title="官方重要維護與更新公告",
+        description=message if message else default_desc,
+        color=0x3498db
+    )
+    embed.add_field(name="官方 Discord 社群", value=f"[點擊此處立即加入]({SUPPORT_INVITE_URL})", inline=False)
+    embed.add_field(name="音樂機器人官網", value=f"[musicbot.bybaoge.com]({OFFICIAL_WEBSITE_URL})", inline=False)
+    embed.add_field(name="贊助支持", value=f"[donate.bybaoge.com]({DONATE_URL})", inline=False)
+    embed.set_footer(text="BaoGe Official Announcement • bybaoge.com")
+
+    b_view = discord.ui.View()
+    b_view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+    b_view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+    b_view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+
+    for guild in bot.guilds:
+        target_channel = None
+        if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
+            target_channel = guild.system_channel
+        else:
+            candidates = ["公告", "general", "一般", "chat", "大廳", "聊天", "welcome"]
+            for name_pattern in candidates:
+                for channel in guild.text_channels:
+                    if name_pattern in channel.name.lower() and channel.permissions_for(guild.me).send_messages:
+                        target_channel = channel
+                        break
+                if target_channel:
+                    break
+
+        if not target_channel:
+            for channel in guild.text_channels:
+                if channel.permissions_for(guild.me).send_messages:
+                    target_channel = channel
+                    break
+
+        if target_channel:
+            try:
+                await target_channel.send(embed=embed, view=b_view)
+                success += 1
+                await asyncio.sleep(0.5)
+            except Exception:
+                failed += 1
+        else:
+            failed += 1
+
+    await interaction.followup.send(f"廣播發送完成。成功: {success} / 失敗: {failed}", ephemeral=True)
 
 async def _set_language_handler(interaction: discord.Interaction, lang: app_commands.Choice[str]):
     bot.guild_locales[interaction.guild_id] = lang.value
@@ -302,14 +431,14 @@ async def seek(interaction: discord.Interaction, timestamp: str):
             return await interaction.response.send_message("Please enter valid seconds.", ephemeral=True)
 
     await player.seek(seconds)
-    await interaction.response.send_message(f"⏩ {seconds // 60:02d}:{seconds % 60:02d}")
+    await interaction.response.send_message(f"{seconds // 60:02d}:{seconds % 60:02d}")
 
 @bot.tree.command(name="autoleave", description="無人時自動離線開關 / Toggle auto-disconnect / 自動退出切り替え")
 async def autoleave(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
     player.auto_disconnect = not player.auto_disconnect
     status = "ON" if player.auto_disconnect else "OFF (24/7)"
-    await interaction.response.send_message(f"⚙️ Auto-leave: **{status}**")
+    await interaction.response.send_message(f"Auto-leave: {status}")
     await player.update_panel_inplace()
 
 @bot.tree.command(name="skip", description="跳過當前歌曲 / Skip track / 曲をスキップ")
@@ -326,14 +455,14 @@ async def skipto(interaction: discord.Interaction, index: int):
     player.queue = player.queue[index - 1:]
     if player.voice_client:
         player.voice_client.stop()
-    await interaction.response.send_message(f"⏩ #{index}")
+    await interaction.response.send_message(f"#{index}")
 
 @bot.tree.command(name="pause", description="暫停播放 / Pause / 一時停止")
 async def pause(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
     if player.voice_client and player.voice_client.is_playing():
         player.voice_client.pause()
-        await interaction.response.send_message("⏸️ Paused.")
+        await interaction.response.send_message("Paused.")
     else:
         await interaction.response.send_message("Not playing.", ephemeral=True)
 
@@ -342,7 +471,7 @@ async def resume(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
     if player.voice_client and player.voice_client.is_paused():
         player.voice_client.resume()
-        await interaction.response.send_message("▶️ Resumed.")
+        await interaction.response.send_message("Resumed.")
     else:
         await interaction.response.send_message("Not paused.", ephemeral=True)
 
@@ -357,7 +486,7 @@ async def stop(interaction: discord.Interaction):
         if player.voice_client.is_playing() or player.voice_client.is_paused():
             player.voice_client.stop()
         await player.voice_client.disconnect()
-    await interaction.response.send_message("⏹️ Stopped.")
+    await interaction.response.send_message("Stopped.")
 
 @bot.tree.command(name="queue", description="查看待播清單 / View queue / キュー確認")
 async def queue(interaction: discord.Interaction):
@@ -391,7 +520,7 @@ async def volume(interaction: discord.Interaction, level: int):
     player.volume = level / 100.0
     if player.voice_client and player.voice_client.source:
         player.voice_client.source.volume = player.volume
-    await interaction.response.send_message(f"🔊 {level}%")
+    await interaction.response.send_message(f"{level}%")
 
 @bot.tree.command(name="equalizer", description="調整等化器 (EQ) / Change equalizer preset / EQ設定")
 @app_commands.choices(preset=[
@@ -404,7 +533,7 @@ async def volume(interaction: discord.Interaction, level: int):
 async def equalizer(interaction: discord.Interaction, preset: app_commands.Choice[str]):
     player = bot.get_player(interaction.guild_id)
     await player.set_eq(preset.value)
-    await interaction.response.send_message(f"🎛️ {preset.name}")
+    await interaction.response.send_message(preset.name)
     await player.update_panel_inplace()
 
 @bot.tree.command(name="shuffle", description="隨機打亂隊列 / Shuffle queue / シャッフル")
@@ -413,7 +542,7 @@ async def shuffle(interaction: discord.Interaction):
     if len(player.queue) < 2:
         return await interaction.response.send_message("Queue too short.", ephemeral=True)
     random.shuffle(player.queue)
-    await interaction.response.send_message("🔀 Shuffled.")
+    await interaction.response.send_message("Shuffled.")
 
 @bot.tree.command(name="loop", description="切換循環模式 / Set loop mode / ループ設定")
 @app_commands.choices(mode=[
@@ -424,7 +553,7 @@ async def shuffle(interaction: discord.Interaction):
 async def loop(interaction: discord.Interaction, mode: app_commands.Choice[str]):
     player = bot.get_player(interaction.guild_id)
     player.loop_mode = mode.value
-    await interaction.response.send_message(f"🔁 {mode.name}")
+    await interaction.response.send_message(mode.name)
 
 @bot.tree.command(name="remove", description="刪除隊列歌曲 / Remove song from queue / 曲を削除")
 @app_commands.describe(index="歌曲序號 / Track number / 曲番号")
@@ -433,14 +562,14 @@ async def remove(interaction: discord.Interaction, index: int):
     if index < 1 or index > len(player.queue):
         return await interaction.response.send_message("Invalid index.", ephemeral=True)
     removed = player.queue.pop(index - 1)
-    await interaction.response.send_message(f"🗑️ Removed: **{removed['title']}**")
+    await interaction.response.send_message(f"Removed: {removed['title']}")
 
 @bot.tree.command(name="clear", description="清空隊列 / Clear queue / キューを消去")
 async def clear(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
     count = len(player.queue)
     player.queue.clear()
-    await interaction.response.send_message(f"🧹 Cleared {count} tracks.")
+    await interaction.response.send_message(f"Cleared {count} tracks.")
 
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")

@@ -1,5 +1,5 @@
 {
-  "PRESENCE_IDLE": "/play | bybaoge.com",
+  "PRESENCE_IDLE": "/play | musicbot.bybaoge.com",
   "DM_TITLE": "歡迎使用 BaoGe Music Bot 音樂機器人！",
   "DM_DESC": "你好 **{user}**！機器人服務已於 **{guild}** 就緒。\n以下是管理員快速指南：",
   "DM_QUICKSTART_TITLE": "快速開始",
@@ -7,15 +7,15 @@
   "DM_PERM_TITLE": "權限與管理",
   "DM_PERM_VAL": "• 機器人預設對所有成員開放，可透過伺服器設定 -> 整合 -> 應用程式調整權限。\n• 管理員與點播者擁有跳過與隊列控制特權。",
   "DM_OFFICIAL_TITLE": "官方資源與社群",
-  "DM_OFFICIAL_VAL": "• [官方網站](https://bybaoge.com)\n• [官方 Discord 伺服器](https://discord.gg/92BB9zGRmS)",
+  "DM_OFFICIAL_VAL": "• [官方網站](https://musicbot.bybaoge.com/)\n• [贊助支持](https://donate.bybaoge.com/)\n• [官方 Discord 伺服器](https://discord.gg/92BB9zGRmS)",
   "WELCOME_TITLE": "BaoGe Music Bot 音樂機器人已上線！",
   "WELCOME_DESC": "全方位多平台解析、高音質無縫串流與智慧原音過濾已就緒！",
   "WELCOME_TUTORIAL_TITLE": "教學",
-  "WELCOME_TUTORIAL_VAL": "1. 加入任一語音頻道。\n2. 使用斜線指令 `/play <歌名/網址>` 即可秒速點歌。\n3. 點歌後將自動生成**全功能控制面板**，直接點擊按鈕操控（EQ 等化器、±15s 快進、循環、跳過等）。",
+  "WELCOME_TUTORIAL_VAL": "1. 加入任一語音頻道。\n2. 使用斜線指令 `/play <歌名/網址>` 即可秒速點歌。\n3. 點歌後將自動生成全功能控制面板，直接點擊按鈕操控（EQ 等化器、±15s 快進、循環、跳過等）。",
   "WELCOME_HIGHLIGHT_TITLE": "亮點",
   "WELCOME_HIGHLIGHT_VAL": "• **多平台支援**：YouTube、Bilibili、StreetVoice、KKBOX、Spotify、Apple Music\n• **原音純化過濾**：自動剔除 Live 版與非官方翻唱\n• **智慧續播**：播放清單播畢自動銜接推薦曲目",
   "WELCOME_OFFICIAL_TITLE": "官方",
-  "WELCOME_OFFICIAL_VAL": "• [官方網站](https://bybaoge.com)\n• [官方 Discord 伺服器](https://discord.gg/92BB9zGRmS)\n• 如有疑問或回報建議，歡迎加入官方群交流！",
+  "WELCOME_OFFICIAL_VAL": "• [官方網站](https://musicbot.bybaoge.com/)\n• [贊助支持](https://donate.bybaoge.com/)\n• [官方 Discord 伺服器](https://discord.gg/92BB9zGRmS)\n• 如有疑問或回報建議，歡迎加入官方群交流！",
   "FOOTER_TEXT": "BaoGe Music 服務中 • 伺服器 ID: {guild_id}",
   "PANEL_TITLE": "正在播放",
   "PANEL_PROGRESS": "進度",
@@ -51,5 +51,7 @@
   "NO_AUDIO_FOUND": "找不到可播放的音訊資源。",
   "ADDED_SINGLE": "已加入佇列：**{title}**",
   "ADDED_BATCH": "已批量加入 **{count}** 首曲目至佇列！",
-  "LANG_SWITCHED": "伺服器語言已切換為：**繁體中文**"
+  "LANG_SWITCHED": "伺服器語言已切換為：**繁體中文**",
+  "AUTH_REQUIRED_TITLE": "請先加入官方 Discord 社群",
+  "AUTH_REQUIRED_DESC": "由於短時間內使用量暴增，我們正在加緊修復近期回報的問題與 Bug，伺服器近期將會頻繁重啟與部署更新。\n\n為了確保您能第一時間接收重啟維護、Bug 修復進度及最新公告，使用音樂機器人前請務必加入官方 Discord 社群。\n\n**[點此加入官方 Discord]({invite_url})**\n**[前往機器人官方網站]({website_url})**\n**[贊助支持我們]({donate_url})**\n\n加入後即可立即正常使用點歌功能。"
 }

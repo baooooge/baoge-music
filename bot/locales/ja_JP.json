@@ -1,5 +1,5 @@
 {
-  "PRESENCE_IDLE": "/play | bybaoge.com",
+  "PRESENCE_IDLE": "/play | musicbot.bybaoge.com",
   "DM_TITLE": "BaoGe Music Bot へようこそ！",
   "DM_DESC": "こんにちは **{user}**！**{guild}** で音楽サービスが準備完了しました。\n管理者向けクイックガイド：",
   "DM_QUICKSTART_TITLE": "クイックスタート",
@@ -7,15 +7,15 @@
   "DM_PERM_TITLE": "権限と管理",
   "DM_PERM_VAL": "• デフォルトで全メンバーが利用可能です（サーバー設定 -> 連携サービスで変更可能）。\n• 管理者およびリクエスト者はスキップやキュー管理の特権を持ちます。",
   "DM_OFFICIAL_TITLE": "公式コミュニティ",
-  "DM_OFFICIAL_VAL": "• [公式サイト](https://bybaoge.com)\n• [公式 Discord サーバー](https://discord.gg/92BB9zGRmS)",
+  "DM_OFFICIAL_VAL": "• [公式サイト](https://musicbot.bybaoge.com/)\n• [ご支援・寄付](https://donate.bybaoge.com/)\n• [公式 Discord サーバー](https://discord.gg/92BB9zGRmS)",
   "WELCOME_TITLE": "BaoGe Music Bot がオンラインになりました！",
   "WELCOME_DESC": "マルチプラットフォーム対応・スタジオ音質・シームレス再生が利用可能です！",
   "WELCOME_TUTORIAL_TITLE": "使い方",
-  "WELCOME_TUTORIAL_VAL": "1. ボイスチャンネルに参加します。\n2. スラッシュコマンド `/play <曲名/URL>` で曲をリクエスト。\n3. 送信される**高機能操作パネル**で直感的に操作可能（EQ、±15s 早送り/巻き戻し、ループ、スキップなど）。",
+  "WELCOME_TUTORIAL_VAL": "1. ボイスチャンネルに参加します。\n2. スラッシュコマンド `/play <曲名/URL>` で曲をリクエスト。\n3. 送信される操作パネルで直感的に操作可能（EQ、±15s 早送り/巻き戻し、ループ、スキップなど）。",
   "WELCOME_HIGHLIGHT_TITLE": "特徴",
   "WELCOME_HIGHLIGHT_VAL": "• **対応プラットフォーム**：YouTube、Bilibili、StreetVoice、KKBOX、Spotify、Apple Music\n• **ピュアオーディオフィルター**：ライブ音源や非公式カバーを自動除外\n• **自動連続再生**：キュー終了時に公式ラジオミックスから自動推薦",
   "WELCOME_OFFICIAL_TITLE": "公式リンク",
-  "WELCOME_OFFICIAL_VAL": "• [公式サイト](https://bybaoge.com)\n• [公式 Discord サーバー](https://discord.gg/92BB9zGRmS)",
+  "WELCOME_OFFICIAL_VAL": "• [公式サイト](https://musicbot.bybaoge.com/)\n• [ご支援・寄付](https://donate.bybaoge.com/)\n• [公式 Discord サーバー](https://discord.gg/92BB9zGRmS)",
   "FOOTER_TEXT": "BaoGe Music 稼働中 • サーバー ID: {guild_id}",
   "PANEL_TITLE": "再生中",
   "PANEL_PROGRESS": "再生位置",
@@ -51,5 +51,7 @@
   "NO_AUDIO_FOUND": "再生可能なオーディオが見つかりませんでした。",
   "ADDED_SINGLE": "キューに追加しました：**{title}**",
   "ADDED_BATCH": "**{count}** 曲をキューに一括追加しました！",
-  "LANG_SWITCHED": "サーバー言語が設定されました：**日本語**"
+  "LANG_SWITCHED": "サーバー言語が設定されました：**日本語**",
+  "AUTH_REQUIRED_TITLE": "公式 Discord サーバーに参加してください",
+  "AUTH_REQUIRED_DESC": "利用者の急増に伴い、バグ修正やアップデートのためのサーバー再起動が頻繁に行われます。\n\n再起動やメンテナンスの通知をリアルタイムで受け取るため、ボットを利用する前に公式 Discord サーバーへの参加が必要です。\n\n**[公式 Discord に参加]({invite_url})**\n**[ボット公式サイト]({website_url})**\n**[ご支援・寄付]({donate_url})**\n\n参加後、すぐに曲の再生が可能になります。"
 }
