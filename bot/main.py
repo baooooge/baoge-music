@@ -215,15 +215,26 @@ class MusicBot(commands.Bot):
         except Exception:
             pass
 
-    async def on_ready(self):
-        print(f"Logged in as {self.user} (ID: {self.user.id})")
+    async def _broadcast_startup_announcements(self):
         for guild in self.guilds:
             try:
                 await self.send_welcome_announcement(guild)
             except Exception:
                 pass
+
+    async def on_ready(self):
+        print(f"Logged in as {self.user} (ID: {self.user.id})")
+        initial_activity = discord.Activity(
+            type=discord.ActivityType.listening,
+            name=f"/play | 服務於 {len(self.guilds)} 個伺服器"
+        )
+        try:
+            await self.change_presence(activity=initial_activity, status=discord.Status.online)
+        except Exception:
+            pass
         if not self.status_task:
             self.status_task = self.loop.create_task(self.dynamic_presence_loop())
+        self.loop.create_task(self._broadcast_startup_announcements())
         print("Ready and listening!")
 
     async def on_guild_join(self, guild: discord.Guild):
