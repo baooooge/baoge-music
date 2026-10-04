@@ -217,6 +217,11 @@ class MusicBot(commands.Bot):
 
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
+        for guild in self.guilds:
+            try:
+                await self.send_welcome_announcement(guild)
+            except Exception:
+                pass
         if not self.status_task:
             self.status_task = self.loop.create_task(self.dynamic_presence_loop())
         print("Ready and listening!")
