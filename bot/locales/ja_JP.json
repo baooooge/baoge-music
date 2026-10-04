@@ -16,6 +16,8 @@
   "WELCOME_HIGHLIGHT_VAL": "• **対応プラットフォーム**：YouTube、Bilibili、StreetVoice、KKBOX、Spotify、Apple Music\n• **ピュアオーディオフィルター**：ライブ音源や非公式カバーを自動除外\n• **自動連続再生**：キュー終了時に公式ラジオミックスから自動推薦",
   "WELCOME_OFFICIAL_TITLE": "公式リンク",
   "WELCOME_OFFICIAL_VAL": "• [公式サイト](https://musicbot.bybaoge.com/)\n• [ご支援・寄付](https://donate.bybaoge.com/)\n• [公式 Discord サーバー](https://discord.gg/92BB9zGRmS)",
+  "WELCOME_AUTH_TITLE": "⚠️ 利用条件",
+  "WELCOME_AUTH_VAL": "メンテナンスや更新の通知を受け取るため、**音楽を再生する前に公式 Discord コミュニティへの参加が必須です**。\n👉 **[公式 Discord に参加]({invite_url})**",
   "FOOTER_TEXT": "BaoGe Music 稼働中 • サーバー ID: {guild_id}",
   "PANEL_TITLE": "再生中",
   "PANEL_PROGRESS": "再生位置",

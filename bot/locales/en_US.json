@@ -16,6 +16,8 @@
   "WELCOME_HIGHLIGHT_VAL": "• **Platforms**: YouTube, Bilibili, StreetVoice, KKBOX, Spotify, Apple Music\n• **Purity Filter**: Eliminates live recordings and low-quality covers\n• **Autoplay**: Seamless radio transitions upon queue completion",
   "WELCOME_OFFICIAL_TITLE": "Official",
   "WELCOME_OFFICIAL_VAL": "• [Official Website](https://musicbot.bybaoge.com/)\n• [Donate](https://donate.bybaoge.com/)\n• [Official Discord](https://discord.gg/92BB9zGRmS)\n• Questions or suggestions? Join our official community!",
+  "WELCOME_AUTH_TITLE": "⚠️ Requirements",
+  "WELCOME_AUTH_VAL": "To receive maintenance and restart notifications, **all users must join our official Discord community before playing music**.\n👉 **[Join Official Discord]({invite_url})**",
   "FOOTER_TEXT": "BaoGe Music Service • Guild ID: {guild_id}",
   "PANEL_TITLE": "Now Playing",
   "PANEL_PROGRESS": "Progress",

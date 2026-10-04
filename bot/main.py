@@ -200,6 +200,7 @@ class MusicBot(commands.Bot):
             embed.set_thumbnail(url=self.user.avatar.url)
 
         embed.add_field(name=self.i18n.get("WELCOME_TUTORIAL_TITLE", loc), value=self.i18n.get("WELCOME_TUTORIAL_VAL", loc), inline=False)
+        embed.add_field(name=self.i18n.get("WELCOME_AUTH_TITLE", loc), value=self.i18n.get("WELCOME_AUTH_VAL", loc, invite_url=SUPPORT_INVITE_URL), inline=False)
         embed.add_field(name=self.i18n.get("WELCOME_HIGHLIGHT_TITLE", loc), value=self.i18n.get("WELCOME_HIGHLIGHT_VAL", loc), inline=False)
         embed.add_field(name=self.i18n.get("WELCOME_OFFICIAL_TITLE", loc), value=self.i18n.get("WELCOME_OFFICIAL_VAL", loc), inline=False)
         embed.set_footer(text=self.i18n.get("FOOTER_TEXT", loc, guild_id=guild.id))
@@ -313,7 +314,7 @@ async def play(interaction: discord.Interaction, search: str):
 
     try:
         if not player.voice_client or not player.voice_client.is_connected():
-            player.voice_client = await voice_channel.connect()
+            player.voice_client = await voice_channel.connect(self_deaf=True)
         elif player.voice_client.channel != voice_channel:
             await player.voice_client.move_to(voice_channel)
     except Exception as e:
@@ -592,6 +593,74 @@ async def clear(interaction: discord.Interaction):
     count = len(player.queue)
     player.queue.clear()
     await interaction.response.send_message(f"Cleared {count} tracks.")
+
+async def execute_server_broadcast(bot_instance: commands.Bot, message: str, title: str) -> tuple[int, int]:
+    embed = discord.Embed(
+        title=title,
+        description=message,
+        color=0xf1c40f
+    )
+    if bot_instance.user and bot_instance.user.avatar:
+        embed.set_author(name=bot_instance.user.name, icon_url=bot_instance.user.avatar.url)
+    embed.set_footer(text="BaoGe Music Official Broadcast")
+
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+    view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+    view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+
+    sem = asyncio.Semaphore(5)
+    success = 0
+    failed = 0
+
+    async def _send(guild: discord.Guild):
+        nonlocal success, failed
+        async with sem:
+            target_channel = None
+            if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
+                target_channel = guild.system_channel
+            else:
+                candidates = ["公告", "general", "一般", "chat", "大廳", "聊天", "welcome", "雑談", "メイン"]
+                sendable = [c for c in guild.text_channels if c.permissions_for(guild.me).send_messages]
+                for pattern in candidates:
+                    for c in sendable:
+                        if pattern in c.name.lower():
+                            target_channel = c
+                            break
+                    if target_channel:
+                        break
+                if not target_channel and sendable:
+                    target_channel = sendable[0]
+
+            if target_channel:
+                try:
+                    await target_channel.send(embed=embed, view=view)
+                    success += 1
+                    return
+                except Exception:
+                    pass
+            failed += 1
+
+    tasks = [_send(g) for g in bot_instance.guilds]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return success, failed
+
+@bot.command(name="broadcast")
+@commands.is_owner()
+async def cmd_broadcast(ctx: commands.Context, *, message: str):
+    status_msg = await ctx.send("Broadcasting message to all servers...")
+    success, failed = await execute_server_broadcast(bot, message, "官方系統公告 / Official Announcement")
+    await status_msg.edit(content=f"Broadcast complete: Sent to {success} guilds ({failed} failed/skipped).")
+
+@bot.tree.command(name="broadcast", description="[擁有者專用] 向所有伺服器推播公告 / Broadcast announcement to all servers")
+@app_commands.describe(message="公告內容 / Message content", title="公告標題 / Title")
+async def slash_broadcast(interaction: discord.Interaction, message: str, title: Optional[str] = "官方系統公告 / Official Announcement"):
+    if not await bot.is_owner(interaction.user):
+        return await interaction.response.send_message("Only the bot owner can use this command.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    success, failed = await execute_server_broadcast(bot, message, title)
+    await interaction.followup.send(f"Broadcast complete: Sent to {success} guilds ({failed} failed/skipped).", ephemeral=True)
 
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")

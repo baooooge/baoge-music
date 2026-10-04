@@ -16,6 +16,8 @@
   "WELCOME_HIGHLIGHT_VAL": "• **多平台支援**：YouTube、Bilibili、StreetVoice、KKBOX、Spotify、Apple Music\n• **原音純化過濾**：自動剔除 Live 版與非官方翻唱\n• **智慧續播**：播放清單播畢自動銜接推薦曲目",
   "WELCOME_OFFICIAL_TITLE": "官方",
   "WELCOME_OFFICIAL_VAL": "• [官方網站](https://musicbot.bybaoge.com/)\n• [贊助支持](https://donate.bybaoge.com/)\n• [官方 Discord 伺服器](https://discord.gg/92BB9zGRmS)\n• 如有疑問或回報建議，歡迎加入官方群交流！",
+  "WELCOME_AUTH_TITLE": "⚠️ 點歌先決條件",
+  "WELCOME_AUTH_VAL": "為確保接收重啟維護、Bug 修復與最新公告，**所有成員必須先加入官方 Discord 社群方可點歌**。\n👉 **[點此加入官方 Discord 社群]({invite_url})**",
   "FOOTER_TEXT": "BaoGe Music 服務中 • 伺服器 ID: {guild_id}",
   "PANEL_TITLE": "正在播放",
   "PANEL_PROGRESS": "進度",
