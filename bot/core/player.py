@@ -50,6 +50,23 @@ DEFAULT_BEFORE_OPTS = (
     "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
 )
 
+class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
+    def cleanup(self):
+        proc = self._process
+        if proc is None:
+            return
+        self._process = None
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=0.2)
+                except Exception:
+                    proc.kill()
+                    proc.wait(timeout=0.2)
+        except Exception:
+            pass
+
 def render_progress_bar(current: int, total: int, length: int = 14) -> str:
     if total <= 0:
         return f"`{current // 60:02d}:{current % 60:02d}` ──────────────"
@@ -465,6 +482,7 @@ class GuildPlayer:
         self.auto_disconnect = False
         self.skip_votes: Set[int] = set()
         self.ticker_task: Optional[asyncio.Task] = None
+        self.last_panel_update = 0.0
         self.audio_task = self.bot.loop.create_task(self.audio_loop())
 
     @property
@@ -484,7 +502,7 @@ class GuildPlayer:
     async def _ticker_loop(self):
         while not self.bot.is_closed():
             try:
-                await asyncio.sleep(15)
+                await asyncio.sleep(25 + random.uniform(0, 10))
                 if not self.voice_client or not self.current or not self.panel_message:
                     continue
                 if self.voice_client.is_playing():
@@ -502,7 +520,7 @@ class GuildPlayer:
         if self.voice_client.is_playing() or self.voice_client.is_paused():
             self.voice_client.stop()
 
-        base_opts = "-vn"
+        base_opts = "-vn -nostdin -sn -dn"
         eq_filter = EQ_PRESETS.get(self.current_eq, "")
         if eq_filter:
             base_opts += f' -af "{eq_filter}"'
@@ -510,7 +528,7 @@ class GuildPlayer:
         clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", DEFAULT_BEFORE_OPTS)).strip()
         before_opts = f"{clean_before} -ss {seconds}"
 
-        raw_source = discord.FFmpegPCMAudio(
+        raw_source = SafeFFmpegPCMAudio(
             self.current["stream_url"],
             before_options=before_opts,
             options=base_opts
@@ -520,7 +538,7 @@ class GuildPlayer:
         self.voice_client.play(audio_source, after=self._after_playback)
         await asyncio.sleep(0.3)
         self.is_restarting_stream = False
-        await self.update_panel_inplace()
+        await self.update_panel_inplace(force=True)
 
     async def set_eq(self, eq_name: str):
         if eq_name not in EQ_PRESETS:
@@ -652,7 +670,8 @@ class GuildPlayer:
             return await interaction.response.send_message(msgs.get(loc, "Vote recorded."))
 
     async def audio_loop(self):
-        await self.bot.wait_until_ready()
+        if hasattr(self.bot, "wait_until_ready"):
+            await self.bot.wait_until_ready()
         idle_counter = 0
         while not self.bot.is_closed():
             try:
@@ -737,12 +756,12 @@ class GuildPlayer:
                 if next_item.get("webpage_url") and not self.current.get("webpage_url", "").startswith("http"):
                     self.current["webpage_url"] = next_item["webpage_url"]
 
-                base_opts = "-vn"
+                base_opts = "-vn -nostdin -sn -dn"
                 eq_filter = EQ_PRESETS.get(self.current_eq, "")
                 if eq_filter:
                     base_opts += f' -af "{eq_filter}"'
 
-                raw_source = discord.FFmpegPCMAudio(
+                raw_source = SafeFFmpegPCMAudio(
                     self.current["stream_url"],
                     before_options=self.current.get("before_options", DEFAULT_BEFORE_OPTS),
                     options=base_opts
@@ -755,6 +774,10 @@ class GuildPlayer:
                     await self.post_new_panel()
                     self.start_ticker()
                     await self.play_next_event.wait()
+                    elapsed = time.time() - self.track_start_time
+                    if elapsed < 3.0 and not self.is_restarting_stream:
+                        if hasattr(self.resolver, "invalidate_stream_cache"):
+                            await self.resolver.invalidate_stream_cache(next_item["search_query"])
                 else:
                     await asyncio.sleep(2)
 
@@ -821,9 +844,13 @@ class GuildPlayer:
         except Exception as e:
             print(f"Error sending control panel: {e}")
 
-    async def update_panel_inplace(self):
+    async def update_panel_inplace(self, force: bool = False):
         if not self.panel_message or not self.current:
             return
+        now = time.time()
+        if not force and (now - self.last_panel_update < 4.0):
+            return
+        self.last_panel_update = now
         embed = self._build_embed()
         view = PlayerControls(self)
         try:

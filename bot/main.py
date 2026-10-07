@@ -3,12 +3,15 @@ import json
 import asyncio
 import random
 import time
+import logging
 from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
 from core.resolver import UniversalResolver
 from core.player import GuildPlayer, QueuePaginator, EQ_LABELS
+
+logging.getLogger("discord.player").setLevel(logging.WARNING)
 
 LOCALES_DIR = "/app/bot/locales" if os.path.exists("/app/bot/locales") else os.path.join(os.path.dirname(__file__), "locales")
 SUPPORT_GUILD_ID = int(os.getenv("SUPPORT_GUILD_ID", 1039860460389941338))
@@ -145,36 +148,35 @@ class MusicBot(commands.Bot):
                 pass
             await asyncio.sleep(15)
 
-    async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None, is_startup: bool = False):
+    async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None):
         loc = self.get_guild_locale(guild)
 
-        if not is_startup:
-            target_user = inviter
-            if not target_user:
-                try:
-                    target_user = guild.owner or await self.fetch_user(guild.owner_id)
-                except Exception:
-                    target_user = None
+        target_user = inviter
+        if not target_user:
+            try:
+                target_user = guild.owner or await self.fetch_user(guild.owner_id)
+            except Exception:
+                target_user = None
 
-            if target_user and not target_user.bot:
-                try:
-                    dm_embed = discord.Embed(
-                        title=self.i18n.get("DM_TITLE", loc),
-                        description=self.i18n.get("DM_DESC", loc, user=target_user.display_name, guild=guild.name),
-                        color=0x3498db
-                    )
-                    dm_embed.add_field(name=self.i18n.get("DM_QUICKSTART_TITLE", loc), value=self.i18n.get("DM_QUICKSTART_VAL", loc), inline=False)
-                    dm_embed.add_field(name=self.i18n.get("DM_PERM_TITLE", loc), value=self.i18n.get("DM_PERM_VAL", loc), inline=False)
-                    dm_embed.add_field(name=self.i18n.get("DM_OFFICIAL_TITLE", loc), value=self.i18n.get("DM_OFFICIAL_VAL", loc), inline=False)
+        if target_user and not target_user.bot:
+            try:
+                dm_embed = discord.Embed(
+                    title=self.i18n.get("DM_TITLE", loc),
+                    description=self.i18n.get("DM_DESC", loc, user=target_user.display_name, guild=guild.name),
+                    color=0x3498db
+                )
+                dm_embed.add_field(name=self.i18n.get("DM_QUICKSTART_TITLE", loc), value=self.i18n.get("DM_QUICKSTART_VAL", loc), inline=False)
+                dm_embed.add_field(name=self.i18n.get("DM_PERM_TITLE", loc), value=self.i18n.get("DM_PERM_VAL", loc), inline=False)
+                dm_embed.add_field(name=self.i18n.get("DM_OFFICIAL_TITLE", loc), value=self.i18n.get("DM_OFFICIAL_VAL", loc), inline=False)
 
-                    view = discord.ui.View()
-                    view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
-                    view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
-                    view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
+                view = discord.ui.View()
+                view.add_item(discord.ui.Button(label="Discord Community", url=SUPPORT_INVITE_URL, style=discord.ButtonStyle.link))
+                view.add_item(discord.ui.Button(label="Official Website", url=OFFICIAL_WEBSITE_URL, style=discord.ButtonStyle.link))
+                view.add_item(discord.ui.Button(label="Donate / 贊助", url=DONATE_URL, style=discord.ButtonStyle.link))
 
-                    await target_user.send(embed=dm_embed, view=view)
-                except Exception:
-                    pass
+                await target_user.send(embed=dm_embed, view=view)
+            except Exception:
+                pass
 
         target_channel = None
         if guild.system_channel and guild.system_channel.permissions_for(guild.me).send_messages:
@@ -219,20 +221,6 @@ class MusicBot(commands.Bot):
         except Exception:
             pass
 
-    async def _broadcast_startup_announcements(self):
-        sem = asyncio.Semaphore(5)
-
-        async def _safe_send(guild: discord.Guild):
-            async with sem:
-                try:
-                    await self.send_welcome_announcement(guild, is_startup=True)
-                except Exception:
-                    pass
-
-        tasks = [_safe_send(g) for g in self.guilds]
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
         initial_activity = discord.Activity(
@@ -245,7 +233,6 @@ class MusicBot(commands.Bot):
             pass
         if not self.status_task:
             self.status_task = self.loop.create_task(self.dynamic_presence_loop())
-        self.loop.create_task(self._broadcast_startup_announcements())
         print("Ready and listening!")
 
     async def on_guild_join(self, guild: discord.Guild):
@@ -266,6 +253,16 @@ class MusicBot(commands.Bot):
                 pass
 
         await self.send_welcome_announcement(guild, inviter=inviter)
+
+    async def on_guild_remove(self, guild: discord.Guild):
+        player = self.players.pop(guild.id, None)
+        if player:
+            player.stop_ticker()
+            if player.voice_client:
+                try:
+                    await player.voice_client.disconnect(force=True)
+                except Exception:
+                    pass
 
     async def on_member_join(self, member: discord.Member):
         if member.guild.id == SUPPORT_GUILD_ID:
@@ -547,6 +544,24 @@ async def clear(interaction: discord.Interaction):
     count = len(player.queue)
     player.queue.clear()
     await interaction.response.send_message(f"Cleared {count} tracks.")
+
+@bot.tree.command(name="reload", description="熱重載核心模組 (管理員專用) / Hot reload modules")
+async def _reload_command(interaction: discord.Interaction):
+    if not await bot.is_owner(interaction.user):
+        return await interaction.response.send_message("Only the bot owner can reload modules.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    try:
+        import importlib
+        import core.resolver
+        import core.player
+        importlib.reload(core.resolver)
+        importlib.reload(core.player)
+        bot.resolver = core.resolver.UniversalResolver()
+        for p in bot.players.values():
+            p.resolver = bot.resolver
+        await interaction.followup.send("Core modules hot-reloaded successfully. Voice playback uninterrupted.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"Hot-reload failed: {e}", ephemeral=True)
 
 async def execute_server_broadcast(bot_instance: commands.Bot, message: str, title: str) -> tuple[int, int]:
     embed = discord.Embed(

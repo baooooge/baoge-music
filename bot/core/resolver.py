@@ -58,10 +58,15 @@ class UniversalResolver:
         if cookie_path:
             self.ydl_opts_stream["cookiefile"] = cookie_path
 
-        self.executor = ThreadPoolExecutor(max_workers=8)
+        self.executor = ThreadPoolExecutor(max_workers=min(32, max(8, (os.cpu_count() or 4) * 4)))
         self._meta_cache = OrderedDict()
         self._stream_cache = OrderedDict()
         self._cache_lock = asyncio.Lock()
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._extract_semaphore = asyncio.Semaphore(16)
+        self._flight_lock = asyncio.Lock()
+        self._in_flight_searches: Dict[str, asyncio.Future] = {}
+        self._in_flight_streams: Dict[str, asyncio.Future] = {}
 
         self.kkbox_client_id = os.getenv("KKBOX_CLIENT_ID", "")
         self.kkbox_client_secret = os.getenv("KKBOX_CLIENT_SECRET", "")
@@ -69,19 +74,43 @@ class UniversalResolver:
         self._kkbox_token = None
         self._kkbox_token_expiry = 0
 
+    async def get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(
+                limit=100,
+                limit_per_host=30,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True
+            )
+            self._session = aiohttp.ClientSession(
+                connector=connector,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=10, connect=3)
+            )
+        return self._session
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+        self.executor.shutdown(wait=False)
+
+    async def invalidate_stream_cache(self, target: str):
+        async with self._cache_lock:
+            self._stream_cache.pop(target, None)
+
     async def get_search_suggestions(self, current: str) -> List[str]:
         if not current or current.startswith("http"):
             return []
         url = f"https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q={current}"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=2) as resp:
-                    if resp.status == 200:
-                        text = await resp.text()
-                        match = re.search(r"window\.google\.ac\.h\((.*)\)", text)
-                        if match:
-                            data = json.loads(match.group(1))
-                            return [item[0] for item in data[1][:5]]
+            session = await self.get_session()
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    match = re.search(r"window\.google\.ac\.h\((.*)\)", text)
+                    if match:
+                        data = json.loads(match.group(1))
+                        return [item[0] for item in data[1][:5]]
         except Exception:
             pass
         return []
@@ -96,33 +125,50 @@ class UniversalResolver:
                     return cached_val
                 del self._meta_cache[query]
 
-        res = []
-        if "streetvoice.com" in query:
-            res = await self._resolve_streetvoice(query)
-        elif "kkbox.com" in query:
-            res = await self._resolve_kkbox(query)
-        elif "open.spotify.com" in query:
-            res = await self._resolve_spotify(query)
-        elif "music.apple.com" in query:
-            res = await self._resolve_apple_music(query)
-        else:
-            res = await self._resolve_raw_search(query)
+        async with self._flight_lock:
+            if query in self._in_flight_searches:
+                return await self._in_flight_searches[query]
+            fut = asyncio.get_running_loop().create_future()
+            self._in_flight_searches[query] = fut
 
-        if res:
-            async with self._cache_lock:
-                if len(self._meta_cache) > 2000:
-                    self._meta_cache.popitem(last=False)
-                self._meta_cache[query] = (now, res)
-        return res
+        try:
+            res = []
+            if "streetvoice.com" in query:
+                res = await self._resolve_streetvoice(query)
+            elif "kkbox.com" in query:
+                res = await self._resolve_kkbox(query)
+            elif "open.spotify.com" in query:
+                res = await self._resolve_spotify(query)
+            elif "music.apple.com" in query:
+                res = await self._resolve_apple_music(query)
+            else:
+                res = await self._resolve_raw_search(query)
+
+            if res:
+                async with self._cache_lock:
+                    if len(self._meta_cache) > 2000:
+                        self._meta_cache.popitem(last=False)
+                    self._meta_cache[query] = (now, res)
+
+            if not fut.done():
+                fut.set_result(res)
+            return res
+        except Exception:
+            if not fut.done():
+                fut.set_result([])
+            return []
+        finally:
+            async with self._flight_lock:
+                self._in_flight_searches.pop(query, None)
 
     async def _resolve_streetvoice(self, url: str) -> List[Dict[str, Any]]:
         clean_url = url.split("?")[0]
 
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.get(clean_url) as resp:
-                if resp.status != 200:
-                    return []
-                html = await resp.text()
+        session = await self.get_session()
+        async with session.get(clean_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return []
+            html = await resp.text()
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -194,14 +240,14 @@ class UniversalResolver:
             "client_secret": self.kkbox_client_secret
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    if resp.status == 200:
-                        payload = await resp.json()
-                        self._kkbox_token = payload.get("access_token")
-                        expires_in = int(payload.get("expires_in", 3600))
-                        self._kkbox_token_expiry = now + expires_in
-                        return self._kkbox_token
+            session = await self.get_session()
+            async with session.post(url, data=data, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    payload = await resp.json()
+                    self._kkbox_token = payload.get("access_token")
+                    expires_in = int(payload.get("expires_in", 3600))
+                    self._kkbox_token_expiry = now + expires_in
+                    return self._kkbox_token
         except Exception:
             pass
         return None
@@ -218,29 +264,15 @@ class UniversalResolver:
         results = []
 
         try:
-            async with aiohttp.ClientSession(headers=headers) as session:
-                if m_pl:
-                    p_id = m_pl.group(1)
-                    api_urls = [
-                        f"https://api.kkbox.com/v1.1/shared-playlists/{p_id}/tracks?territory=TW&limit=100",
-                        f"https://api.kkbox.com/v1.1/featured-playlists/{p_id}/tracks?territory=TW&limit=100"
-                    ]
-                    for a_url in api_urls:
-                        async with session.get(a_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                            if resp.status == 200:
-                                payload = await resp.json()
-                                for item in payload.get("data", []):
-                                    name = item.get("name", "")
-                                    artist = item.get("album", {}).get("artist", {}).get("name", "")
-                                    q = f"{name} {artist}".strip() if artist else name
-                                    if q:
-                                        results.append({"title": q, "search_query": q, "webpage_url": clean_url})
-                                if results:
-                                    return results
-                elif m_album:
-                    a_id = m_album.group(1)
-                    api_url = f"https://api.kkbox.com/v1.1/albums/{a_id}/tracks?territory=TW&limit=100"
-                    async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            session = await self.get_session()
+            if m_pl:
+                p_id = m_pl.group(1)
+                api_urls = [
+                    f"https://api.kkbox.com/v1.1/shared-playlists/{p_id}/tracks?territory=TW&limit=100",
+                    f"https://api.kkbox.com/v1.1/featured-playlists/{p_id}/tracks?territory=TW&limit=100"
+                ]
+                for a_url in api_urls:
+                    async with session.get(a_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                         if resp.status == 200:
                             payload = await resp.json()
                             for item in payload.get("data", []):
@@ -249,18 +281,32 @@ class UniversalResolver:
                                 q = f"{name} {artist}".strip() if artist else name
                                 if q:
                                     results.append({"title": q, "search_query": q, "webpage_url": clean_url})
-                            return results
-                elif m_song:
-                    s_id = m_song.group(1)
-                    api_url = f"https://api.kkbox.com/v1.1/tracks/{s_id}?territory=TW"
-                    async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        if resp.status == 200:
-                            item = await resp.json()
+                            if results:
+                                return results
+            elif m_album:
+                a_id = m_album.group(1)
+                api_url = f"https://api.kkbox.com/v1.1/albums/{a_id}/tracks?territory=TW&limit=100"
+                async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        payload = await resp.json()
+                        for item in payload.get("data", []):
                             name = item.get("name", "")
                             artist = item.get("album", {}).get("artist", {}).get("name", "")
                             q = f"{name} {artist}".strip() if artist else name
                             if q:
-                                return [{"title": q, "search_query": q, "webpage_url": clean_url}]
+                                results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+                        return results
+            elif m_song:
+                s_id = m_song.group(1)
+                api_url = f"https://api.kkbox.com/v1.1/tracks/{s_id}?territory=TW"
+                async with session.get(api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        item = await resp.json()
+                        name = item.get("name", "")
+                        artist = item.get("album", {}).get("artist", {}).get("name", "")
+                        q = f"{name} {artist}".strip() if artist else name
+                        if q:
+                            return [{"title": q, "search_query": q, "webpage_url": clean_url}]
         except Exception:
             pass
         return results
@@ -398,11 +444,11 @@ class UniversalResolver:
         item_type, item_id = match.groups()
         embed_url = f"https://open.spotify.com/embed/{item_type}/{item_id}"
 
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.get(embed_url) as resp:
-                if resp.status != 200:
-                    return []
-                html = await resp.text()
+        session = await self.get_session()
+        async with session.get(embed_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return []
+            html = await resp.text()
 
         soup = BeautifulSoup(html, "html.parser")
         script = soup.find("script", id="__NEXT_DATA__")
@@ -429,11 +475,11 @@ class UniversalResolver:
         return meta_list
 
     async def _resolve_apple_music(self, url: str) -> List[Dict[str, Any]]:
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    return []
-                html = await resp.text()
+        session = await self.get_session()
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return []
+            html = await resp.text()
 
         soup = BeautifulSoup(html, "html.parser")
         og_title = soup.find("meta", property="og:title")
@@ -492,11 +538,11 @@ class UniversalResolver:
                 return ydl.extract_info(search_target, download=False)
 
         try:
-            info = await loop.run_in_executor(None, _extract)
+            info = await loop.run_in_executor(self.executor, _extract)
             if not info:
                 if not is_url:
                     search_target = f"ytsearch5:{query}"
-                    info = await loop.run_in_executor(None, _extract)
+                    info = await loop.run_in_executor(self.executor, _extract)
                 if not info:
                     return []
 
@@ -558,16 +604,16 @@ class UniversalResolver:
             return 0.0
         url = f"https://sponsor.ajay.app/api/skipSegments?videoID={video_id}&categories=[\"music_offtopic\"]"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=2) as resp:
-                    if resp.status == 200:
-                        segments = await resp.json()
-                        for seg in segments:
-                            segment_range = seg.get("segment", [])
-                            if segment_range and len(segment_range) == 2:
-                                start, end = segment_range
-                                if start <= 2.0 and end > 2.0:
-                                    return float(end)
+            session = await self.get_session()
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                if resp.status == 200:
+                    segments = await resp.json()
+                    for seg in segments:
+                        segment_range = seg.get("segment", [])
+                        if segment_range and len(segment_range) == 2:
+                            start, end = segment_range
+                            if start <= 2.0 and end > 2.0:
+                                return float(end)
         except Exception:
             pass
         return 0.0
@@ -581,77 +627,90 @@ class UniversalResolver:
                     return cached_val
                 del self._stream_cache[target]
 
-        reconnect_flags = (
-            "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-            "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
-        )
-
-        if "streetvoice.com" in target:
-            song_match = re.search(r"/songs/(\d+)", target)
-            if song_match:
-                song_id = song_match.group(1)
-                api_url = f"https://streetvoice.com/api/v3/songs/{song_id}/hls/"
-                sv_headers = {
-                    **self.headers,
-                    "Referer": target,
-                    "Origin": "https://streetvoice.com"
-                }
-                try:
-                    async with aiohttp.ClientSession(headers=sv_headers) as session:
-                        async with session.post(api_url) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                file_url = data.get("file")
-                                if file_url:
-                                    user_agent = self.headers["User-Agent"]
-                                    before_opts = (
-                                        f'-headers "User-Agent: {user_agent}\r\nReferer: {target}\r\nOrigin: https://streetvoice.com\r\n" '
-                                        f'{reconnect_flags}'
-                                    )
-                                    res_dict = {
-                                        "id": song_id,
-                                        "title": "StreetVoice Track",
-                                        "uploader": "StreetVoice",
-                                        "duration": 0,
-                                        "thumbnail": "",
-                                        "webpage_url": target,
-                                        "stream_url": file_url,
-                                        "is_live": False,
-                                        "before_options": before_opts,
-                                        "start_offset": 0.0
-                                    }
-                                    async with self._cache_lock:
-                                        if len(self._stream_cache) > 2000:
-                                            self._stream_cache.popitem(last=False)
-                                        self._stream_cache[target] = (now, res_dict)
-                                    return res_dict
-                except Exception:
-                    pass
-
-        loop = asyncio.get_running_loop()
-        clean_target = target
-        if "youtube.com" in target or "youtu.be" in target:
-            match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", target)
-            if match:
-                clean_target = f"https://www.youtube.com/watch?v={match.group(1)}"
-
-        is_bili = "bilibili.com" in clean_target or "b23.tv" in clean_target
-        opts = dict(self.ydl_opts_stream)
-        if is_bili:
-            opts["http_headers"] = {
-                **self.headers,
-                "Referer": "https://www.bilibili.com/",
-                "Origin": "https://www.bilibili.com"
-            }
-
-        def _extract():
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                query = clean_target if clean_target.startswith("http") else f"ytsearch1:{clean_target} official audio"
-                return ydl.extract_info(query, download=False)
+        async with self._flight_lock:
+            if target in self._in_flight_streams:
+                return await self._in_flight_streams[target]
+            fut = asyncio.get_running_loop().create_future()
+            self._in_flight_streams[target] = fut
 
         try:
-            info = await loop.run_in_executor(self.executor, _extract)
+            reconnect_flags = (
+                "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+                "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
+            )
+
+            if "streetvoice.com" in target:
+                song_match = re.search(r"/songs/(\d+)", target)
+                if song_match:
+                    song_id = song_match.group(1)
+                    api_url = f"https://streetvoice.com/api/v3/songs/{song_id}/hls/"
+                    sv_headers = {
+                        **self.headers,
+                        "Referer": target,
+                        "Origin": "https://streetvoice.com"
+                    }
+                    try:
+                        session = await self.get_session()
+                        async with session.post(api_url, headers=sv_headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    file_url = data.get("file")
+                                    if file_url:
+                                        user_agent = self.headers["User-Agent"]
+                                        before_opts = (
+                                            f'-headers "User-Agent: {user_agent}\r\nReferer: {target}\r\nOrigin: https://streetvoice.com\r\n" '
+                                            f'{reconnect_flags}'
+                                        )
+                                        res_dict = {
+                                            "id": song_id,
+                                            "title": "StreetVoice Track",
+                                            "uploader": "StreetVoice",
+                                            "duration": 0,
+                                            "thumbnail": "",
+                                            "webpage_url": target,
+                                            "stream_url": file_url,
+                                            "is_live": False,
+                                            "before_options": before_opts,
+                                            "start_offset": 0.0
+                                        }
+                                        async with self._cache_lock:
+                                            if len(self._stream_cache) > 2000:
+                                                self._stream_cache.popitem(last=False)
+                                            self._stream_cache[target] = (now, res_dict)
+                                        if not fut.done():
+                                            fut.set_result(res_dict)
+                                        return res_dict
+                    except Exception:
+                        pass
+
+            loop = asyncio.get_running_loop()
+            clean_target = target
+            if "youtube.com" in target or "youtu.be" in target:
+                match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", target)
+                if match:
+                    clean_target = f"https://www.youtube.com/watch?v={match.group(1)}"
+
+            is_bili = "bilibili.com" in clean_target or "b23.tv" in clean_target
+            opts = dict(self.ydl_opts_stream)
+            if is_bili:
+                opts["http_headers"] = {
+                    **self.headers,
+                    "Referer": "https://www.bilibili.com/",
+                    "Origin": "https://www.bilibili.com"
+                }
+
+            def _extract():
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    query = clean_target if clean_target.startswith("http") else f"ytsearch1:{clean_target} official audio"
+                    return ydl.extract_info(query, download=False)
+
+            info = None
+            async with self._extract_semaphore:
+                info = await loop.run_in_executor(self.executor, _extract)
+
             if not info:
+                if not fut.done():
+                    fut.set_result(None)
                 return None
             if "entries" in info and info["entries"]:
                 info = info["entries"][0]
@@ -664,6 +723,8 @@ class UniversalResolver:
                     stream_url = audio_formats[-1].get("url")
 
             if not stream_url:
+                if not fut.done():
+                    fut.set_result(None)
                 return None
 
             raw_id = info.get("id", "")
@@ -716,9 +777,17 @@ class UniversalResolver:
                 if len(self._stream_cache) > 2000:
                     self._stream_cache.popitem(last=False)
                 self._stream_cache[target] = (now, res_dict)
+
+            if not fut.done():
+                fut.set_result(res_dict)
             return res_dict
         except Exception:
+            if not fut.done():
+                fut.set_result(None)
             return None
+        finally:
+            async with self._flight_lock:
+                self._in_flight_streams.pop(target, None)
 
     async def get_autoplay_recommendation(self, current_info: Dict[str, Any], history_ids: List[str] = []) -> Optional[Dict[str, Any]]:
         loop = asyncio.get_running_loop()
@@ -734,7 +803,7 @@ class UniversalResolver:
                     return ydl.extract_info(mix_url, download=False)
 
             try:
-                info = await loop.run_in_executor(None, _extract_mix)
+                info = await loop.run_in_executor(self.executor, _extract_mix)
                 if info and "entries" in info:
                     for entry in info["entries"]:
                         if not entry:
@@ -763,7 +832,7 @@ class UniversalResolver:
                 return ydl.extract_info(search_query, download=False)
 
         try:
-            info = await loop.run_in_executor(None, _extract_search)
+            info = await loop.run_in_executor(self.executor, _extract_search)
             if info and "entries" in info:
                 for entry in info["entries"]:
                     if not entry:
@@ -784,11 +853,11 @@ class UniversalResolver:
         clean_title = re.sub(r"[\(\[].*?[\)\]]", "", title).strip()
         url = f"https://lrclib.net/api/get?track_name={clean_title}&artist_name={artist}"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=5) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data.get("plainLyrics") or data.get("syncedLyrics")
+            session = await self.get_session()
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("plainLyrics") or data.get("syncedLyrics")
         except Exception:
             pass
         return None
