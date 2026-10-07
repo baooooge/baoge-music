@@ -1,0 +1,2103 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description"
+        content="BaoGe Music Bot：開源的高保真 Discord 音樂機器人，支援 YouTube、Bilibili、StreetVoice、KKBOX、Spotify 與 Apple Music，無廣告、免 API 金鑰。">
+    <title>一款開源的 Discord 音樂機器人 | BaoGe Music Bot</title>
+    <link rel="icon" href="/favicon.png?v=2" type="image/png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,900;1,9..144,500;1,9..144,800&family=Noto+Serif+TC:wght@700;900&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+
+    <script>
+        (function () {
+            const theme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            --paper: #000000;
+            --paper-2: #141414;
+            --card: #0a0a0a;
+            --ink: #f0f0ee;
+            --ink-2: #c4c4c0;
+            --ink-3: #868682;
+            --line: #f0f0ee;
+            --orange: #f0f0ee;
+            --mustard: #bdbdb8;
+            --on-ink: #000000;
+            --shadow-hard: 6px 6px 0 var(--ink);
+            --on-accent: #000000;
+            --tag-fg: #f0f0ee;
+            --eq: #000000;
+            --term-accent: #f0f0ee;
+            --cta-em: #000000;
+            --ring: rgba(255, 255, 255, .14);
+            --ring-2: rgba(255, 255, 255, .1);
+        }
+
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --paper: #efefed;
+            --paper-2: #e2e2df;
+            --card: #fafaf8;
+            --ink: #0d0d0d;
+            --ink-2: #454545;
+            --ink-3: #8a8a86;
+            --line: #0d0d0d;
+            --orange: #0d0d0d;
+            --mustard: #d4d4d0;
+            --on-ink: #efefed;
+            --shadow-hard: 6px 6px 0 var(--ink);
+            --on-accent: #fafaf8;
+            --tag-fg: #0d0d0d;
+            --eq: #d4d4d0;
+            --term-accent: #efefed;
+            --cta-em: #d4d4d0;
+            --ring: rgba(0, 0, 0, .14);
+            --ring-2: rgba(0, 0, 0, .1);
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --paper: #000000;
+            --paper-2: #141414;
+            --card: #0a0a0a;
+            --ink: #f0f0ee;
+            --ink-2: #c4c4c0;
+            --ink-3: #868682;
+            --line: #f0f0ee;
+            --orange: #f0f0ee;
+            --mustard: #bdbdb8;
+            --on-ink: #000000;
+            --shadow-hard: 6px 6px 0 var(--ink);
+            --on-accent: #000000;
+            --tag-fg: #f0f0ee;
+            --eq: #000000;
+            --term-accent: #f0f0ee;
+            --cta-em: #000000;
+            --ring: rgba(255, 255, 255, .14);
+            --ring-2: rgba(255, 255, 255, .1);
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            scroll-padding-top: 80px;
+            overflow-x: hidden;
+            width: 100%;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--paper);
+            color: var(--ink);
+            line-height: 1.75;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+            width: 100%;
+            position: relative;
+            transition: background-color 160ms linear, color 160ms linear;
+        }
+
+        body.lock-scroll {
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        ::selection {
+            background: var(--orange);
+            color: var(--on-accent);
+        }
+
+        a {
+            color: inherit;
+        }
+
+        .serif {
+            font-family: 'Fraunces', 'Noto Serif TC', serif;
+        }
+
+        .tc-serif {
+            font-family: 'Noto Serif TC', 'Fraunces', serif;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .wrap {
+            width: 100%;
+            max-width: 1240px;
+            margin: 0 auto;
+            padding: 0 36px;
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translateY(28px);
+            transition: opacity 800ms cubic-bezier(.16, 1, .3, 1), transform 800ms cubic-bezier(.16, 1, .3, 1);
+        }
+
+        .reveal.in {
+            opacity: 1;
+            transform: none;
+        }
+
+        .d1 {
+            transition-delay: 90ms;
+        }
+
+        .d2 {
+            transition-delay: 180ms;
+        }
+
+        .d3 {
+            transition-delay: 270ms;
+        }
+
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+            background: var(--paper);
+            border-bottom: 2px solid var(--line);
+            transition: background-color 160ms linear;
+        }
+
+        .nav .wrap {
+            height: 68px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            font-family: 'Fraunces', serif;
+            font-weight: 900;
+            font-size: 1.4rem;
+            letter-spacing: -0.5px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .brand-disc {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--paper) 0 3px, var(--orange) 3px 9px, var(--ink) 9px);
+            animation: spin 6s linear infinite;
+            flex-shrink: 0;
+        }
+
+        .brand em {
+            font-style: italic;
+            font-weight: 500;
+            color: var(--orange);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            font-size: 0.88rem;
+            font-weight: 700;
+            padding: 6px 12px;
+            border: 2px solid transparent;
+            border-radius: 99px;
+            white-space: nowrap;
+            word-break: keep-all;
+            flex-shrink: 0;
+            transition: all 140ms ease;
+        }
+
+        .nav-links a:hover {
+            border-color: var(--line);
+            background: var(--mustard);
+            color: #1b1612;
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .icon-btn {
+            background: none;
+            border: 2px solid transparent;
+            color: var(--ink);
+            cursor: pointer;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-size: 1.05rem;
+            text-decoration: none;
+            transition: all 140ms ease;
+            flex-shrink: 0;
+        }
+
+        .icon-btn:hover {
+            border-color: var(--line);
+            background: var(--card);
+        }
+
+        .menu-btn {
+            display: none;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 14px 28px;
+            min-height: 48px;
+            font: inherit;
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            border: 2px solid var(--line);
+            border-radius: 99px;
+            background: var(--card);
+            color: var(--ink);
+            box-shadow: 4px 4px 0 var(--line);
+            transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+        }
+
+        .btn:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0 var(--line);
+        }
+
+        .btn:active {
+            transform: translate(4px, 4px);
+            box-shadow: 0 0 0 var(--line);
+        }
+
+        .btn-orange {
+            background: var(--orange);
+            color: var(--on-accent);
+        }
+
+        .btn-sm {
+            padding: 8px 18px;
+            min-height: 38px;
+            font-size: 0.82rem;
+            box-shadow: 3px 3px 0 var(--line);
+        }
+
+        .hero {
+            padding: 150px 0 70px;
+            position: relative;
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 40px;
+            align-items: center;
+            min-width: 0;
+        }
+
+        .kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 6px 16px;
+            border: 2px solid var(--line);
+            border-radius: 99px;
+            background: var(--mustard);
+            color: #1b1612;
+            transform: rotate(-2deg);
+        }
+
+        .hero h1 {
+            font-family: 'Noto Serif TC', 'Fraunces', serif;
+            font-weight: 900;
+            font-size: clamp(2.9rem, 7.2vw, 6rem);
+            line-height: 1.08;
+            letter-spacing: -2px;
+            margin: 34px 0 28px;
+        }
+
+        .hero h1 .ital {
+            font-family: 'Fraunces', serif;
+            font-style: italic;
+            font-weight: 800;
+            color: var(--orange);
+            letter-spacing: -3px;
+        }
+
+        .hero h1 .under {
+            background: var(--mustard);
+            color: #1b1612;
+            padding: 0 12px;
+            margin: 0 4px;
+            display: inline-block;
+            line-height: 1.15;
+            border: 2px solid var(--line);
+            transform: rotate(-1.5deg);
+            box-shadow: 5px 5px 0 var(--line);
+        }
+
+        .hero p.lead {
+            max-width: 520px;
+            font-size: 1.08rem;
+            color: var(--ink-2);
+            margin-bottom: 38px;
+            font-weight: 500;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .stage {
+            position: relative;
+            aspect-ratio: 1;
+            max-width: 480px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .sleeve {
+            position: absolute;
+            inset: 6% 18% 6% 0;
+            background: var(--orange);
+            border: 2px solid var(--line);
+            box-shadow: var(--shadow-hard);
+            transform: rotate(-5deg);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 22px;
+            color: var(--on-accent);
+        }
+
+        .sleeve .s-top {
+            font-family: 'Fraunces', serif;
+            font-style: italic;
+            font-weight: 800;
+            font-size: 2rem;
+            line-height: 1;
+        }
+
+        .sleeve .s-bot {
+            font-size: 0.7rem;
+            letter-spacing: 2px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .sleeve::after {
+            content: '';
+            position: absolute;
+            right: 18px;
+            top: 18px;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            border: 2px dashed currentColor;
+        }
+
+        .record {
+            position: absolute;
+            right: 0;
+            top: 14%;
+            width: 76%;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            border: 2px solid var(--line);
+            background:
+                radial-gradient(circle, #1b1612 0 10%, transparent 10%),
+                radial-gradient(circle, var(--mustard) 0 28%, transparent 28.3%),
+                repeating-radial-gradient(circle, #14100d 0 2px, #231c17 2px 4px);
+            box-shadow: 8px 8px 0 rgba(27, 22, 18, .25);
+            animation: spin 5s linear infinite;
+        }
+
+        .record::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: conic-gradient(from 20deg, transparent 0 20%, rgba(255, 255, 255, .14) 25%, transparent 32% 70%, rgba(255, 255, 255, .12) 75%, transparent 82%);
+        }
+
+        .record::after {
+            content: 'BAOGE';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) translateY(-26px);
+            font: 800 0.55rem 'JetBrains Mono', monospace;
+            letter-spacing: 3px;
+            color: #1b1612;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .sticker {
+            position: absolute;
+            display: grid;
+            place-items: center;
+            text-align: center;
+            font-weight: 900;
+            line-height: 1.15;
+            border: 2px solid var(--line);
+            border-radius: 50%;
+        }
+
+        .st-1 {
+            left: -4%;
+            bottom: 6%;
+            width: 112px;
+            height: 112px;
+            background: var(--mustard);
+            color: #1b1612;
+            font-size: 0.82rem;
+            transform: rotate(-12deg);
+            box-shadow: 3px 3px 0 var(--line);
+            animation: bob 4s ease-in-out infinite;
+        }
+
+        .st-2 {
+            right: 2%;
+            bottom: 2%;
+            padding: 8px 16px;
+            border-radius: 99px;
+            background: var(--card);
+            font-size: 0.74rem;
+            transform: rotate(4deg);
+            box-shadow: 3px 3px 0 var(--line);
+            animation: bob 5s ease-in-out infinite reverse;
+        }
+
+        @keyframes bob {
+            0%, 100% {
+                translate: 0 0;
+            }
+            50% {
+                translate: 0 -8px;
+            }
+        }
+
+        .marquee {
+            background: var(--ink);
+            color: var(--on-ink);
+            border-top: 2px solid var(--line);
+            border-bottom: 2px solid var(--line);
+            overflow: hidden;
+            transform: rotate(-1.2deg);
+            margin: 50px 0 0;
+            width: 100%;
+        }
+
+        .marquee-track {
+            display: flex;
+            width: max-content;
+            animation: marq 28s linear infinite;
+        }
+
+        .marquee:hover .marquee-track {
+            animation-play-state: paused;
+        }
+
+        .marquee span {
+            display: inline-flex;
+            align-items: center;
+            gap: 28px;
+            padding: 16px 28px 16px 0;
+            font-family: 'Fraunces', serif;
+            font-size: 1.7rem;
+            font-weight: 900;
+            font-style: italic;
+            white-space: nowrap;
+        }
+
+        .marquee span::after {
+            content: '\2736';
+            color: var(--eq);
+            font-style: normal;
+        }
+
+        @keyframes marq {
+            to {
+                transform: translateX(-50%);
+            }
+        }
+
+        section.block {
+            padding: 130px 0 0;
+        }
+
+        .sec-head {
+            margin-bottom: 60px;
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 20px 36px;
+            align-items: end;
+        }
+
+        .sec-no {
+            font-family: 'Fraunces', serif;
+            font-style: italic;
+            font-weight: 900;
+            font-size: clamp(4.5rem, 10vw, 8rem);
+            line-height: .8;
+            color: transparent;
+            -webkit-text-stroke: 2px var(--ink);
+        }
+
+        .sec-head h2 {
+            font-family: 'Noto Serif TC', serif;
+            font-weight: 900;
+            font-size: clamp(2rem, 4.4vw, 3.4rem);
+            line-height: 1.2;
+            letter-spacing: -1px;
+        }
+
+        .sec-head h2 em {
+            font-family: 'Fraunces', serif;
+            color: var(--orange);
+            font-weight: 800;
+        }
+
+        .sec-head p {
+            grid-column: 2;
+            color: var(--ink-2);
+            font-weight: 500;
+            max-width: 520px;
+        }
+
+        .collage {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 26px;
+            min-width: 0;
+        }
+
+        .card {
+            border: 2px solid var(--line);
+            background: var(--card);
+            box-shadow: var(--shadow-hard);
+            padding: 32px;
+            position: relative;
+            transition: transform 200ms cubic-bezier(.16, 1, .3, 1), box-shadow 200ms ease;
+            min-width: 0;
+        }
+
+        .card:hover {
+            transform: translate(-3px, -3px) rotate(0deg) !important;
+            box-shadow: 9px 9px 0 var(--line);
+        }
+
+        .card h3 {
+            font-family: 'Noto Serif TC', serif;
+            font-size: 1.35rem;
+            font-weight: 900;
+            margin-bottom: 10px;
+            line-height: 1.3;
+        }
+
+        .card p {
+            font-size: 0.94rem;
+            color: inherit;
+            opacity: .82;
+            font-weight: 500;
+        }
+
+        .card .tag {
+            position: absolute;
+            top: -14px;
+            left: 24px;
+            background: var(--ink);
+            color: var(--on-ink);
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            padding: 3px 12px;
+            border-radius: 99px;
+        }
+
+        .card .ic {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .k1 {
+            grid-column: 1 / span 7;
+            background: var(--orange);
+            color: var(--on-accent);
+            transform: rotate(-.8deg);
+        }
+
+        .k1 .tag {
+            background: var(--on-accent);
+            color: var(--tag-fg);
+        }
+
+        .k2 {
+            grid-column: 8 / span 5;
+            background: var(--mustard);
+            color: #1b1612;
+            transform: rotate(1.2deg);
+            margin-top: 24px;
+        }
+
+        .k3 {
+            grid-column: 1 / span 4;
+            transform: rotate(.8deg);
+        }
+
+        .k4 {
+            grid-column: 5 / span 4;
+            background: var(--ink);
+            color: var(--on-ink);
+            transform: rotate(-1.2deg);
+            margin-top: 20px;
+            box-shadow: 6px 6px 0 var(--orange);
+        }
+
+        .k4 .tag {
+            background: var(--orange);
+            color: var(--on-accent);
+        }
+
+        .k5 {
+            grid-column: 9 / span 4;
+            transform: rotate(1deg);
+        }
+
+        .k6 {
+            grid-column: 1 / span 4;
+            transform: rotate(-1deg);
+        }
+
+        .k7 {
+            grid-column: 5 / span 4;
+            background: var(--paper-2);
+            transform: rotate(.6deg);
+        }
+
+        .k8 {
+            grid-column: 9 / span 4;
+            transform: rotate(-.8deg);
+        }
+
+        .k9 {
+            grid-column: 1 / span 6;
+            background: var(--paper-2);
+            transform: rotate(.7deg);
+        }
+
+        .k10 {
+            grid-column: 7 / span 6;
+            background: var(--card);
+            transform: rotate(-.9deg);
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 22px;
+        }
+
+        .chip {
+            padding: 4px 14px;
+            border: 2px solid currentColor;
+            border-radius: 99px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            transition: all 120ms ease;
+        }
+
+        .chip:hover {
+            background: var(--on-accent);
+            color: var(--orange);
+            transform: rotate(-3deg);
+        }
+
+        .big {
+            font-family: 'Fraunces', serif;
+            font-weight: 900;
+            font-size: 5.2rem;
+            line-height: .9;
+            letter-spacing: -4px;
+            margin-bottom: 8px;
+        }
+
+        .big small {
+            font-size: 1rem;
+            letter-spacing: 0;
+            font-family: 'Noto Sans TC', sans-serif;
+            margin-left: 8px;
+        }
+
+        .eqbars {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 40px;
+            margin-top: 18px;
+        }
+
+        .eqbars i {
+            flex: 1;
+            background: var(--eq);
+            animation: eq 1.2s ease-in-out infinite;
+            border-radius: 2px;
+        }
+
+        .eqbars i:nth-child(2n) {
+            animation-delay: -.4s;
+        }
+
+        .eqbars i:nth-child(3n) {
+            animation-delay: -.8s;
+        }
+
+        .eqbars i:nth-child(5n) {
+            animation-delay: -.2s;
+        }
+
+        @keyframes eq {
+            0%, 100% {
+                height: 15%;
+            }
+            50% {
+                height: 100%;
+            }
+        }
+
+        .host {
+            display: grid;
+            grid-template-columns: 0.9fr 1.1fr;
+            gap: 56px;
+            align-items: center;
+            min-width: 0;
+        }
+
+        .host-copy {
+            min-width: 0;
+        }
+
+        .host-copy h2 {
+            font-family: 'Noto Serif TC', serif;
+            font-size: clamp(2rem, 4.2vw, 3.2rem);
+            font-weight: 900;
+            line-height: 1.2;
+            letter-spacing: -1px;
+            margin: 18px 0 18px;
+        }
+
+        .host-copy h2 em {
+            font-family: 'Fraunces', serif;
+            color: var(--orange);
+            font-weight: 800;
+        }
+
+        .host-copy p {
+            color: var(--ink-2);
+            font-weight: 500;
+            margin-bottom: 20px;
+        }
+
+        .label {
+            display: inline-block;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 4px 14px;
+            border: 2px solid var(--line);
+            border-radius: 99px;
+            background: var(--card);
+        }
+
+        .note {
+            display: flex;
+            gap: 14px;
+            padding: 16px 20px;
+            background: var(--card);
+            border: 2px dashed var(--line);
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 28px;
+            word-break: break-word;
+        }
+
+        .note i {
+            color: var(--orange);
+            margin-top: 5px;
+            flex-shrink: 0;
+        }
+
+        .term {
+            background: #1b1612;
+            color: #f3ece0;
+            border: 2px solid var(--line);
+            box-shadow: 10px 10px 0 var(--orange);
+            transform: rotate(1deg);
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+        }
+
+        .term-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 18px;
+            border-bottom: 2px solid #3a2f27;
+            font-size: 0.76rem;
+            color: #8a7d6f;
+        }
+
+        .dots {
+            display: flex;
+            gap: 8px;
+        }
+
+        .dots i {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid #f3ece0;
+        }
+
+        .dots i:first-child {
+            background: var(--term-accent);
+        }
+
+        .dots i:nth-child(2) {
+            background: var(--mustard);
+        }
+
+        .copy {
+            background: var(--mustard);
+            color: #1b1612;
+            border: 2px solid #f3ece0;
+            border-radius: 99px;
+            padding: 4px 14px;
+            min-height: 32px;
+            font: 700 0.74rem 'JetBrains Mono', monospace;
+            cursor: pointer;
+            transition: transform 120ms ease;
+            flex-shrink: 0;
+        }
+
+        .copy:hover {
+            transform: scale(1.06) rotate(-2deg);
+        }
+
+        .term pre {
+            padding: 24px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.86rem;
+            line-height: 2.1;
+            overflow-x: auto;
+            max-width: 100%;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .term pre b {
+            color: var(--term-accent);
+            font-weight: 700;
+            user-select: none;
+        }
+
+        .tickets {
+            display: grid;
+            grid-template-columns: 1fr;
+            max-width: 680px;
+            margin: 0 auto;
+            min-width: 0;
+        }
+
+        .ticket {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            background: var(--card);
+            border: 2px solid var(--line);
+            box-shadow: var(--shadow-hard);
+            position: relative;
+            transition: transform 200ms cubic-bezier(.16, 1, .3, 1);
+            min-width: 0;
+            transform: rotate(-0.5deg);
+        }
+
+        .ticket:hover {
+            transform: rotate(0) translateY(-4px);
+        }
+
+        .ticket::before,
+        .ticket::after {
+            content: '';
+            position: absolute;
+            right: 118px;
+            width: 24px;
+            height: 24px;
+            background: var(--paper);
+            border: 2px solid var(--line);
+            border-radius: 50%;
+        }
+
+        .ticket::before {
+            top: -14px;
+        }
+
+        .ticket::after {
+            bottom: -14px;
+        }
+
+        .t-main {
+            padding: 30px 28px;
+            min-width: 0;
+        }
+
+        .t-main .no {
+            font-family: 'Fraunces', serif;
+            font-style: italic;
+            font-weight: 900;
+            font-size: 3.2rem;
+            line-height: 1;
+            color: var(--orange);
+        }
+
+        .t-main h3 {
+            font-family: 'Noto Serif TC', serif;
+            font-size: 1.35rem;
+            font-weight: 900;
+            margin: 8px 0 4px;
+        }
+
+        .t-main p {
+            font-size: 0.84rem;
+            color: var(--ink-2);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .live {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #2fb36a;
+            animation: blink 1.6s infinite;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: .25;
+            }
+        }
+
+        .t-stub {
+            width: 138px;
+            border-left: 2px dashed var(--line);
+            display: grid;
+            place-items: center;
+            padding: 16px;
+            background: var(--paper-2);
+            flex-shrink: 0;
+        }
+
+        .faq {
+            max-width: 860px;
+            margin-left: auto;
+        }
+
+        details {
+            border: 2px solid var(--line);
+            background: var(--card);
+            margin-bottom: 16px;
+            box-shadow: 4px 4px 0 var(--line);
+            transition: background-color 140ms ease;
+        }
+
+        details[open] {
+            background: var(--mustard);
+            color: #1b1612;
+        }
+
+        summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            padding: 20px 26px;
+            font-family: 'Noto Serif TC', serif;
+            font-weight: 900;
+            font-size: 1.08rem;
+            min-height: 52px;
+        }
+
+        summary::-webkit-details-marker {
+            display: none;
+        }
+
+        summary i {
+            width: 32px;
+            height: 32px;
+            flex: none;
+            display: grid;
+            place-items: center;
+            border: 2px solid currentColor;
+            border-radius: 50%;
+            font-size: 0.8rem;
+            transition: transform 260ms cubic-bezier(.16, 1, .3, 1);
+        }
+
+        details[open] summary i {
+            transform: rotate(135deg);
+            background: #1b1612;
+            color: var(--mustard);
+        }
+
+        details p {
+            padding: 0 26px 24px;
+            font-weight: 500;
+            max-width: 680px;
+        }
+
+        .cta {
+            margin-top: 140px;
+            background: var(--orange);
+            color: var(--on-accent);
+            border-top: 2px solid var(--line);
+            border-bottom: 2px solid var(--line);
+            position: relative;
+            overflow: hidden;
+            padding: 110px 0;
+            text-align: center;
+        }
+
+        .cta::before {
+            content: '';
+            position: absolute;
+            right: -140px;
+            top: -140px;
+            width: 440px;
+            height: 440px;
+            border-radius: 50%;
+            background: repeating-radial-gradient(circle, var(--ring) 0 2px, transparent 2px 6px);
+            animation: spin 14s linear infinite;
+        }
+
+        .cta::after {
+            content: '';
+            position: absolute;
+            left: -100px;
+            bottom: -160px;
+            width: 360px;
+            height: 360px;
+            border-radius: 50%;
+            background: repeating-radial-gradient(circle, var(--ring-2) 0 2px, transparent 2px 6px);
+            animation: spin 18s linear infinite reverse;
+        }
+
+        .cta .wrap {
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta h2 {
+            font-family: 'Noto Serif TC', serif;
+            font-weight: 900;
+            font-size: clamp(2.6rem, 7vw, 5.4rem);
+            line-height: 1.1;
+            letter-spacing: -2px;
+            margin-bottom: 18px;
+        }
+
+        .cta h2 em {
+            font-family: 'Fraunces', serif;
+            font-weight: 800;
+            color: var(--cta-em);
+        }
+
+        .cta p {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 38px;
+        }
+
+        .cta .hero-cta {
+            justify-content: center;
+        }
+
+        .cta .btn {
+            color: #1b1612;
+            background: #fbf7ef;
+            border-color: #1b1612;
+            box-shadow: 4px 4px 0 #1b1612;
+        }
+
+        footer {
+            padding: 40px 0;
+            border-top: 2px solid var(--line);
+        }
+
+        footer .wrap {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            font-size: 0.86rem;
+            font-weight: 700;
+        }
+
+        .foot-links {
+            display: flex;
+            gap: 22px;
+            flex-wrap: wrap;
+        }
+
+        .foot-links a {
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+            transition: border-color 120ms ease;
+            cursor: pointer;
+        }
+
+        .foot-links a:hover {
+            border-color: var(--orange);
+        }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            background: rgba(0, 0, 0, 0.78);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            visibility: hidden;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            transition: opacity 200ms ease, visibility 200ms ease;
+        }
+
+        .overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            width: 100%;
+            max-width: 460px;
+            background: var(--card);
+            border: 2px solid var(--line);
+            box-shadow: 10px 10px 0 var(--orange);
+            padding: 34px;
+            position: relative;
+            transform: translateY(30px) rotate(-2deg);
+            transition: transform 380ms cubic-bezier(.34, 1.56, .64, 1);
+        }
+
+        .modal-lg {
+            max-width: 760px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            transform: translateY(30px);
+        }
+
+        .modal-body {
+            overflow-y: auto;
+            margin: 18px 0 20px;
+            padding-right: 12px;
+            font-size: 0.9rem;
+            color: var(--ink-2);
+            line-height: 1.8;
+        }
+
+        .modal-body h4 {
+            color: var(--ink);
+            margin: 16px 0 6px;
+            font-size: 1.05rem;
+        }
+
+        .modal-body ul {
+            padding-left: 20px;
+            margin-bottom: 12px;
+        }
+
+        .overlay.active .modal {
+            transform: none;
+        }
+
+        .modal h3 {
+            font-family: 'Noto Serif TC', serif;
+            font-size: 1.5rem;
+            font-weight: 900;
+            margin-bottom: 6px;
+        }
+
+        .modal>p {
+            font-size: 0.9rem;
+            color: var(--ink-2);
+            margin-bottom: 24px;
+            font-weight: 500;
+        }
+
+        .modal .x {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+        }
+
+        @media (max-width: 1200px) {
+            .nav-links a {
+                padding: 6px 8px;
+                font-size: 0.82rem;
+            }
+            .brand {
+                font-size: 1.25rem;
+            }
+        }
+
+        @media (max-width: 1040px) {
+            .nav-links {
+                position: fixed;
+                top: 60px;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                height: calc(100dvh - 60px);
+                flex-direction: column;
+                gap: 0;
+                background: var(--paper);
+                padding: 16px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+                overflow-y: auto;
+                display: none;
+                z-index: 999;
+            }
+
+            .nav-links.active {
+                display: flex;
+            }
+
+            .nav-links a {
+                padding: 16px 0;
+                border-radius: 0;
+                font-size: 1.1rem;
+                min-height: 48px;
+                border-bottom: 1px solid var(--paper-2);
+                display: flex;
+                align-items: center;
+                width: 100%;
+            }
+
+            .menu-btn {
+                display: grid;
+            }
+
+            .hide-sm {
+                display: none;
+            }
+
+            .nav .wrap {
+                height: 60px;
+                gap: 8px;
+            }
+
+            .brand {
+                font-size: 1.15rem;
+                gap: 8px;
+            }
+
+            .brand-disc {
+                width: 22px;
+                height: 22px;
+            }
+
+            .nav-right .icon-btn:not(.menu-btn):not([onclick*="toggleTheme"]) {
+                display: none;
+            }
+
+            .nav-right {
+                gap: 4px;
+            }
+
+            .icon-btn {
+                width: 38px;
+                height: 38px;
+            }
+        }
+
+        @media (max-width: 980px) {
+            .hero-grid,
+            .host {
+                grid-template-columns: 1fr;
+            }
+
+            .stage {
+                max-width: 360px;
+                margin-top: 30px;
+            }
+
+            .collage {
+                grid-template-columns: repeat(6, 1fr);
+            }
+
+            .k1, .k2, .k3, .k4, .k5, .k6, .k7, .k8, .k9, .k10 {
+                grid-column: span 6;
+                margin-top: 0;
+            }
+
+            .sec-head {
+                grid-template-columns: 1fr;
+            }
+
+            .sec-head p {
+                grid-column: 1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .wrap {
+                padding: 0 16px;
+                max-width: 100%;
+            }
+
+            .hero {
+                padding: 92px 0 36px;
+            }
+
+            .hero h1 {
+                font-size: clamp(2.1rem, 9.5vw, 3rem);
+                margin: 20px 0 16px;
+                line-height: 1.15;
+                letter-spacing: -1px;
+            }
+
+            .hero h1 .under {
+                box-shadow: 3px 3px 0 var(--line);
+                margin: 4px 0;
+                transform: none;
+            }
+
+            .hero p.lead {
+                font-size: 0.96rem;
+                margin-bottom: 24px;
+                line-height: 1.65;
+            }
+
+            .hero-cta {
+                flex-direction: column;
+                gap: 12px;
+                width: 100%;
+            }
+
+            .hero-cta .btn {
+                width: 100%;
+                justify-content: center;
+                padding: 12px 20px;
+                font-size: 0.95rem;
+            }
+
+            .stage {
+                max-width: 220px;
+                width: 100%;
+                margin: 24px auto 0;
+            }
+
+            .sleeve {
+                transform: none;
+                inset: 5% 15% 5% 0;
+                padding: 16px;
+            }
+
+            .sleeve .s-top {
+                font-size: 1.4rem;
+            }
+
+            .sleeve .s-bot {
+                font-size: 0.58rem;
+            }
+
+            .st-1 {
+                width: 72px;
+                height: 72px;
+                font-size: 0.65rem;
+                left: 0;
+                bottom: 0;
+                transform: none;
+            }
+
+            .st-2 {
+                font-size: 0.62rem;
+                padding: 4px 10px;
+                right: 0;
+                bottom: 0;
+                transform: none;
+            }
+
+            .marquee {
+                transform: none;
+                margin: 32px 0 0;
+            }
+
+            .marquee span {
+                font-size: 1.15rem;
+                padding: 10px 16px 10px 0;
+                gap: 16px;
+            }
+
+            section.block {
+                padding-top: 68px;
+            }
+
+            .sec-head {
+                margin-bottom: 30px;
+                gap: 10px;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .sec-no {
+                font-size: 3.2rem;
+                line-height: 1;
+            }
+
+            .sec-head h2 {
+                font-size: clamp(1.6rem, 7vw, 2.1rem);
+            }
+
+            .collage {
+                display: flex;
+                flex-direction: column;
+                gap: 18px;
+            }
+
+            .card {
+                padding: 22px 18px;
+                transform: none !important;
+                margin-top: 0 !important;
+                box-shadow: 4px 4px 0 var(--line);
+                max-width: 100%;
+            }
+
+            .k4 {
+                box-shadow: 4px 4px 0 var(--orange);
+            }
+
+            .big {
+                font-size: 3.6rem;
+            }
+
+            .host {
+                gap: 28px;
+            }
+
+            .host-copy h2 {
+                font-size: clamp(1.6rem, 7vw, 2.1rem);
+                margin: 12px 0;
+            }
+
+            .note {
+                padding: 12px 14px;
+                font-size: 0.85rem;
+                margin-bottom: 20px;
+            }
+
+            .term {
+                transform: none;
+                box-shadow: 4px 4px 0 var(--orange);
+                width: 100%;
+            }
+
+            .term-bar {
+                padding: 10px 14px;
+            }
+
+            .term pre {
+                padding: 14px;
+                font-size: 0.74rem;
+                line-height: 1.8;
+                width: 100%;
+            }
+
+            .tickets {
+                gap: 16px;
+            }
+
+            .ticket {
+                grid-template-columns: 1fr;
+                transform: none !important;
+                margin-top: 0 !important;
+                box-shadow: 4px 4px 0 var(--line);
+            }
+
+            .ticket::before,
+            .ticket::after {
+                display: none;
+            }
+
+            .t-main {
+                padding: 20px 16px 16px;
+            }
+
+            .t-stub {
+                width: 100%;
+                border-left: 0;
+                border-top: 2px dashed var(--line);
+                padding: 12px 16px;
+            }
+
+            .t-stub .btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            summary {
+                padding: 14px 16px;
+                font-size: 0.96rem;
+            }
+
+            details p {
+                padding: 0 16px 16px;
+                font-size: 0.88rem;
+            }
+
+            .cta {
+                margin-top: 76px;
+                padding: 60px 0;
+            }
+
+            .cta h2 {
+                font-size: clamp(2rem, 8vw, 3rem);
+                margin-bottom: 12px;
+            }
+
+            .cta p {
+                font-size: 0.95rem;
+                margin-bottom: 24px;
+            }
+
+            .cta .hero-cta {
+                max-width: 320px;
+                margin: 0 auto;
+            }
+
+            footer {
+                padding: 28px 0 calc(28px + env(safe-area-inset-bottom, 0px));
+            }
+
+            footer .wrap {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                gap: 14px;
+            }
+
+            .foot-links {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 16px;
+            }
+
+            .overlay {
+                align-items: flex-end;
+                padding: 0;
+            }
+
+            .modal {
+                max-width: 100%;
+                border-radius: 20px 20px 0 0;
+                border-bottom: 0;
+                border-left: 0;
+                border-right: 0;
+                transform: translateY(100%) !important;
+                margin: 0;
+                padding: 22px 18px calc(22px + env(safe-area-inset-bottom, 0px));
+                box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.8);
+            }
+
+            .modal::before {
+                content: '';
+                display: block;
+                width: 40px;
+                height: 4px;
+                background: var(--ink-3);
+                border-radius: 99px;
+                margin: 0 auto 16px;
+            }
+
+            .overlay.active .modal {
+                transform: translateY(0) !important;
+            }
+
+            .modal .x {
+                top: 16px;
+                right: 16px;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation: none !important;
+                transition: none !important;
+            }
+
+            .reveal {
+                opacity: 1;
+                transform: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="nav">
+        <div class="wrap">
+            <a href="#top" class="brand"><span class="brand-disc"></span>BaoGe <em>Music Bot</em></a>
+            <div class="nav-links" id="navLinks">
+                <a href="#features">特色</a>
+                <a href="#self-host">自行部署</a>
+                <a href="#nodes">節點</a>
+                <a href="#faq">常見問題</a>
+                <a href="#terms" onclick="openModal('termsModal')">服務條款</a>
+                <a href="#privacy" onclick="openModal('privacyModal')">隱私權政策</a>
+                <a href="https://bybaoge.com">總入口</a>
+                <a href="https://donate.bybaoge.com" target="_blank" rel="noopener noreferrer">贊助與支持</a>
+            </div>
+            <div class="nav-right">
+                <a class="icon-btn" href="https://github.com/baooooge/baoge-music" target="_blank"
+                    rel="noopener noreferrer" title="GitHub" aria-label="GitHub"><i class="fab fa-github"></i></a>
+                <a class="icon-btn" href="https://donate.bybaoge.com" target="_blank" rel="noopener noreferrer"
+                    title="贊助與支持" aria-label="贊助與支持"><i class="fas fa-heart"></i></a>
+                <button class="icon-btn" onclick="toggleTheme()" aria-label="Toggle Theme"><i id="themeIcon"
+                        class="fas fa-sun"></i></button>
+                <a class="btn btn-orange btn-sm hide-sm"
+                    href="https://discord.com/oauth2/authorize?client_id=1553986065008824350&permissions=8&integration_type=0&scope=bot"
+                    target="_blank" rel="noopener noreferrer">邀請機器人</a>
+                <button class="icon-btn menu-btn" id="menuBtn" aria-label="Toggle Menu"><i id="menuIcon"
+                        class="fas fa-bars"></i></button>
+            </div>
+        </div>
+    </nav>
+
+    <main id="top">
+        <section class="hero">
+            <div class="wrap hero-grid">
+                <div>
+                    <div class="kicker reveal"><i class="fas fa-circle" style="font-size:.5rem"></i>開源 · Discord 音樂機器人
+                    </div>
+                    <h1 class="reveal d1">你的群組，<br>值得一台<br><span class="under">好音樂機器人</span><span class="ital">.</span>
+                    </h1>
+                    <p class="lead reveal d2">原生解析台灣主流串流，結合原音純化演算法與 SponsorBlock 智慧前奏跳轉，優先呈現母帶級錄音室版本。</p>
+                    <div class="hero-cta reveal d3">
+                        <a class="btn btn-orange"
+                            href="https://discord.com/oauth2/authorize?client_id=1553986065008824350&permissions=8&integration_type=0&scope=bot"
+                            target="_blank" rel="noopener noreferrer"><i class="fas fa-plus"></i>立即邀請</a>
+                        <a class="btn" href="https://github.com/baooooge/baoge-music" target="_blank"
+                            rel="noopener noreferrer"><i class="fab fa-github"></i>GitHub 專案</a>
+                    </div>
+                </div>
+                <div class="stage reveal d2" aria-hidden="true">
+                    <div class="sleeve">
+                        <div class="s-top">Studio<br>Only.</div>
+                        <div class="s-bot mono">No ads · No keys</div>
+                    </div>
+                    <div class="record"></div>
+                    <div class="sticker st-1">免<br>複雜<br>設定</div>
+                    <div class="sticker st-2">24/7 ON AIR</div>
+                </div>
+            </div>
+        </section>
+
+        <div class="marquee" aria-label="Supported platforms">
+            <div class="marquee-track">
+                <span>YouTube</span><span>Bilibili</span><span>StreetVoice</span><span>KKBOX</span><span>Spotify</span><span>Apple
+                    Music</span>
+                <span>YouTube</span><span>Bilibili</span><span>StreetVoice</span><span>KKBOX</span><span>Spotify</span><span>Apple
+                    Music</span>
+            </div>
+        </div>
+
+        <section class="block" id="features">
+            <div class="wrap">
+                <div class="sec-head reveal">
+                    <div class="sec-no">01</div>
+                    <h2>為了聽歌而生的<em>細節</em></h2>
+                    <p>每一項功能，都來自「只想好好聽歌」這個簡單的念頭。</p>
+                </div>
+                <div class="collage">
+                    <div class="card k1 reveal">
+                        <span class="tag mono">PLATFORMS</span>
+                        <i class="fas fa-earth-asia ic"></i>
+                        <h3>完整支援六大平台</h3>
+                        <p>YouTube、Bilibili、StreetVoice（街聲 HLS 直鏈）、KKBOX、Spotify 與 Apple Music。免去繁複 API 金鑰申請，開箱即播。</p>
+                        <div class="chips">
+                            <span class="chip">YouTube</span><span class="chip">Bilibili</span><span
+                                class="chip">StreetVoice</span>
+                            <span class="chip">KKBOX</span><span class="chip">Spotify</span><span class="chip">Apple
+                                Music</span>
+                        </div>
+                    </div>
+                    <div class="card k2 reveal d1">
+                        <span class="tag mono">NO KEYS</span>
+                        <div class="big">0<small>組 API 金鑰</small></div>
+                        <h3>部署零門檻</h3>
+                        <p>不用申請開發者帳號，不用綁信用卡，不用等候審核，填寫 Bot Token 即可秒速起飛。</p>
+                    </div>
+                    <div class="card k3 reveal">
+                        <span class="tag mono">PURITY FILTER</span>
+                        <i class="fas fa-filter ic"></i>
+                        <h3>原音純化演算法</h3>
+                        <p>自動過濾現場演唱（Live）、非官方翻唱（Cover）與低質雜音，優先精準鎖定母帶錄音室版本。</p>
+                    </div>
+                    <div class="card k4 reveal d1">
+                        <span class="tag mono">DSP EQ</span>
+                        <i class="fas fa-sliders ic"></i>
+                        <h3>5 檔 DSP 等化器</h3>
+                        <p>原音直通、重低音強化、極限低音、清晰人聲與通透高音，即刻套用硬體級音效處理。</p>
+                        <div class="eqbars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                    </div>
+                    <div class="card k5 reveal d2">
+                        <span class="tag mono">PANEL & SEEK</span>
+                        <i class="fas fa-hand-pointer ic"></i>
+                        <h3>互動面板與秒級快進</h3>
+                        <p>直覺按鈕操控暫停、跳轉、音量與循環，支援毫秒級精準定位與 ±15 秒快速快進快退。</p>
+                    </div>
+                    <div class="card k6 reveal">
+                        <span class="tag mono">RADIO & 24/7</span>
+                        <i class="fas fa-tower-broadcast ic"></i>
+                        <h3>智慧電台與常駐掛台</h3>
+                        <p>清單播畢後自動銜接官方演算法推薦曲目，支援 24/7 全天候常駐掛台，音樂永不停歇。</p>
+                    </div>
+                    <div class="card k7 reveal d1">
+                        <span class="tag mono">LANG</span>
+                        <i class="fas fa-language ic"></i>
+                        <h3>多語言自適應架構</h3>
+                        <p>支援繁體中文、簡體中文、英文與日文，自動跟隨伺服器偏好切換，亦可手動即時指定。</p>
+                    </div>
+                    <div class="card k8 reveal d2">
+                        <span class="tag mono">SPONSORBLOCK</span>
+                        <i class="fas fa-forward-fast ic"></i>
+                        <h3>SponsorBlock 智慧跳過</h3>
+                        <p>串接雲端標籤資料庫，自動辨識並裁切廢話前奏、開頭長對白與無關口播，開播直奔動聽前奏。</p>
+                    </div>
+                    <div class="card k9 reveal">
+                        <span class="tag mono">RESILIENCE</span>
+                        <i class="fas fa-shield-halved ic"></i>
+                        <h3>重啟狀態無縫復原</h3>
+                        <p>遭遇維護或容器重啟時，系統自動將播放秒數與隊列持久化為快照，啟動後自律回連並接續開播。</p>
+                    </div>
+                    <div class="card k10 reveal d1">
+                        <span class="tag mono">PERFORMANCE</span>
+                        <i class="fas fa-bolt-lightning ic"></i>
+                        <h3>300+ 併發極限調優與熱重載</h3>
+                        <p>單機通過 300 語音頻道高負載串流驗證。支援熱重載機制，線上即時更新模組，語音連線毫無中斷。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="block" id="self-host">
+            <div class="wrap host">
+                <div class="host-copy reveal">
+                    <span class="label mono">Self-Hosting</span>
+                    <h2>自己的機器人，<br>自己的<em>節奏</em>。</h2>
+                    <p>專案完全開源。有長期播放需求時，建議參考 GitHub 教學自行部署，獲得獨立的頻寬與運算資源。</p>
+                    <div class="note"><i class="fas fa-circle-info"></i><span>官方主機架設在台灣，跨國連線時可能因物理距離產生延遲卡頓。</span></div>
+                    <a class="btn" href="https://github.com/baooooge/baoge-music" target="_blank"
+                        rel="noopener noreferrer"><i class="fab fa-github"></i>查看完整教學<i
+                            class="fas fa-arrow-up-right-from-square" style="font-size:.75rem"></i></a>
+                </div>
+                <div class="term reveal d1">
+                    <div class="term-bar mono">
+                        <div class="dots"><i></i><i></i><i></i></div>
+                        <span>bash</span>
+                        <button class="copy" id="copyBtn" onclick="copyCmd()">複製</button>
+                    </div>
+                    <pre><code id="cmdCode"><b>$ </b>git clone https://github.com/baooooge/baoge-music.git
+<b>$ </b>cd baoge-music
+<b>$ </b>cp .env.example .env
+<b>$ </b>docker compose up -d</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <section class="block" id="nodes">
+            <div class="wrap">
+                <div class="sec-head reveal">
+                    <div class="sec-no">02</div>
+                    <h2>領一張<em>入場券</em></h2>
+                    <p>官方實例架設於台灣，隨時邀請加入伺服器即刻開播。</p>
+                </div>
+                <div class="tickets">
+                    <div class="ticket reveal">
+                        <div class="t-main">
+                            <div class="no">No.1</div>
+                            <h3>BaoGe Music (1)</h3>
+                            <p><span class="live"></span>運作中 · 台灣 (TW)</p>
+                        </div>
+                        <div class="t-stub"><a class="btn btn-orange btn-sm"
+                                href="https://discord.com/oauth2/authorize?client_id=1553986065008824350&permissions=8&integration_type=0&scope=bot"
+                                target="_blank" rel="noopener noreferrer">邀請</a></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="block" id="faq">
+            <div class="wrap">
+                <div class="sec-head reveal">
+                    <div class="sec-no">03</div>
+                    <h2>常見<em>問題</em></h2>
+                </div>
+                <div class="faq reveal">
+                    <details>
+                        <summary>自架需要申請 YouTube 或 Spotify 的 API Key 嗎？<i class="fas fa-plus"></i></summary>
+                        <p>完全不需要。專案採用無金鑰爬蟲與動態解析機制，不需繁瑣的金鑰設定或費用即可運作。</p>
+                    </details>
+                    <details>
+                        <summary>機器人重啟或維護時，播放清單與進度會遺失嗎？<i class="fas fa-plus"></i></summary>
+                        <p>不會。系統內建狀態快照持久化機制，伺服器重啟或更新時自動凍結進度、音量、等化器與待播隊列，重啟完畢後自動重新進房並接續播放。</p>
+                    </details>
+                    <details>
+                        <summary>遇到開頭有廢話、長對白或口播廣告的歌曲怎麼辦？<i class="fas fa-plus"></i></summary>
+                        <p>內建 SponsorBlock 智慧前奏跳轉，自動過濾非音樂性質的開頭前置段落，一秒直奔核心歌曲。</p>
+                    </details>
+                    <details>
+                        <summary>播放清單結束後會停止嗎？<i class="fas fa-plus"></i></summary>
+                        <p>不會。清單播完後會自動無縫銜接官方演算法推薦曲目，亦可使用 /autoleave 指令自由切換 24/7 常駐掛台模式。</p>
+                    </details>
+                    <details>
+                        <summary>為什麼建議自行部署？<i class="fas fa-plus"></i></summary>
+                        <p>官方主機架設在台灣，跨國連線時可能因物理距離產生延遲卡頓。自行部署可享有專屬頻寬、獨立運算資源與熱重載彈性。</p>
+                    </details>
+                    <details>
+                        <summary>支援哪些語言？<i class="fas fa-plus"></i></summary>
+                        <p>支援繁體中文、簡體中文、英文與日文，會依伺服器設定自動切換語言，亦可透過 /language 指令手動指定。</p>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <section class="cta">
+            <div class="wrap">
+                <h2 class="reveal">現在，<em>開播</em>吧。</h2>
+                <p class="reveal d1">把 BaoGe Music Bot 加入你的伺服器，一分鐘內開始播放。</p>
+                <div class="hero-cta reveal d2">
+                    <a class="btn"
+                        href="https://discord.com/oauth2/authorize?client_id=1553986065008824350&permissions=8&integration_type=0&scope=bot"
+                        target="_blank" rel="noopener noreferrer"><i class="fas fa-plus"></i>邀請機器人</a>
+                    <a class="btn" href="https://donate.bybaoge.com" target="_blank" rel="noopener noreferrer"><i
+                            class="fas fa-heart"></i>贊助與支持</a>
+                    <a class="btn" href="https://bybaoge.com">返回站點總入口</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="wrap">
+            <span>© 2026 BaoGe</span>
+            <div class="foot-links">
+                <a href="#terms" onclick="openModal('termsModal')">服務條款 (Terms of Service)</a>
+                <a href="#privacy" onclick="openModal('privacyModal')">隱私權政策 (Privacy Policy)</a>
+                <a href="https://github.com/baooooge/baoge-music" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a href="https://donate.bybaoge.com" target="_blank" rel="noopener noreferrer">贊助與支持</a>
+                <a href="https://bybaoge.com">站點總入口</a>
+            </div>
+        </div>
+    </footer>
+
+    <div class="overlay" id="termsModal">
+        <div class="modal modal-lg">
+            <button class="icon-btn x" onclick="closeModal('termsModal')" aria-label="Close"><i
+                    class="fas fa-xmark"></i></button>
+            <h3>服務條款 (Terms of Service)</h3>
+            <p class="mono" style="font-size:0.75rem; color:var(--ink-3);">最後更新日期：2026 年 10 月 4 日</p>
+            <div class="modal-body">
+                <p>歡迎使用 BaoGe Music Bot（以下簡稱「本服務」）。當您將本機器人加入您的 Discord 伺服器或調用相關指令時，即代表您完全理解並無條件同意本條款之全部內容：</p>
+                
+                <h4>1. 服務形式與「依現狀提供」免責</h4>
+                <p>本服務係以「現狀（As-Is）」及「可用性（As-Available）」為基礎免費提供之開源應用程式。開發者（BaoGe）不對服務之穩定性、即時性、無中斷、零錯誤或對特定用途之適用性提供任何明示或暗示之保證。因網路狀況、上游平台風控、伺服器重啟或硬體故障導致之播歌中斷，開發者不承擔任何直接或間接賠償責任。</p>
+                
+                <h4>2. 第三方內容與版權歸屬</h4>
+                <p>本服務僅為使用者調用公開音訊串流之解析與播放工具，本身不託管、儲存或轉售任何影音內容。所有經由本服務播放之音訊、曲目標題、縮圖與創作者資訊，其著作權與智慧財產權均完整歸屬於原始來源平台（包括但不限於 YouTube、Bilibili、StreetVoice、KKBOX、Spotify 等）及原著作權人。使用者對其點播之內容負完全法律責任。</p>
+
+                <h4>3. 單方修改、終止與拒絕服務權利</h4>
+                <p>開發者保留在任何時間、無需事前通知的情況下，行使下列權利：</p>
+                <ul>
+                    <li>限制、暫停或終止特定 Discord 伺服器或個別使用者存取本服務之權限（包括濫用高頻指令、發送惡意請求或繞過身分檢查者）。</li>
+                    <li>調整、縮減或終止本服務提供的全部或部分功能。</li>
+                    <li>隨時修訂本服務條款，修訂後的內容於本網站公布時即刻生效。</li>
+                </ul>
+
+                <h4>4. 使用規範與禁止行為</h4>
+                <p>使用者不得利用本服務從事任何違反中華民國法令、國際版權規範或 Discord 官方服務條款（Terms of Service / Community Guidelines）之行為，亦不得對本服務實施逆向工程、惡意壓力測試或阻斷服務攻擊（DoS/DDoS）。</p>
+            </div>
+            <button class="btn btn-orange btn-sm" onclick="closeModal('termsModal')">我已理解並同意</button>
+        </div>
+    </div>
+
+    <div class="overlay" id="privacyModal">
+        <div class="modal modal-lg">
+            <button class="icon-btn x" onclick="closeModal('privacyModal')" aria-label="Close"><i
+                    class="fas fa-xmark"></i></button>
+            <h3>隱私權政策 (Privacy Policy)</h3>
+            <p class="mono" style="font-size:0.75rem; color:var(--ink-3);">最後更新日期：2026 年 10 月 4 日</p>
+            <div class="modal-body">
+                <p>BaoGe Music Bot 極度重視您的隱私權。本政策說明本機器人在運作時如何處理資料：</p>
+                
+                <h4>1. 資料收集範圍</h4>
+                <p>本服務秉持最小化資料原則，僅在記憶體中處理維持功能所必需之技術資訊：</p>
+                <ul>
+                    <li><strong>點播與佇列資訊</strong>：為在頻道中顯示播放進度與待播清單，系統會暫存點播者之 Discord 使用者 ID、暱稱、歌曲網址與曲目標題。</li>
+                    <li><strong>伺服器設定資訊</strong>：儲存該伺服器所設定之語言偏好（例如 zh_TW、en_US）與音量等化器偏好。</li>
+                    <li><strong>社群資格驗證</strong>：在調用播放功能時，系統僅即時查詢該使用者是否在官方支援伺服器名單中，不建立持久化個人個資庫。</li>
+                </ul>
+
+                <h4>2. 絕不收集與記錄之資料</h4>
+                <p>本服務<strong>絕對不會</strong>收集、監聽、轉錄或儲存任何語音頻道之語音內容，亦不會讀取或備份文字頻道之任何非指令聊天紀錄，更不會收集使用者的個人真實身分、電子郵件、密碼或通訊錄。</p>
+
+                <h4>3. 資料之儲存與第三方分享</h4>
+                <p>所有播放佇列與暫存資料均存於臨時記憶體中，機器人重啟或斷線離開頻道時即刻清空，不會持久化寫入外部雲端資料庫。開發者承諾絕不將任何收集到的技術資料出售、出租或移轉給任何第三方機構或廣告商，除非依法配合司法或監管機關之強制性要求。</p>
+
+                <h4>4. 資料刪除與聯絡途徑</h4>
+                <p>當機器人自您的 Discord 伺服器移除時，該伺服器之暫存播放資料將立刻自動作廢。若您對隱私權有任何疑慮，可透過官方 Discord 支援社群直接聯繫管理團隊。</p>
+            </div>
+            <button class="btn btn-orange btn-sm" onclick="closeModal('privacyModal')">確認</button>
+        </div>
+    </div>
+
+    <script>
+        function currentTheme() {
+            return document.documentElement.getAttribute('data-theme') || 'dark';
+        }
+        function syncIcon() {
+            document.getElementById('themeIcon').className = currentTheme() === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+        function toggleTheme() {
+            const next = currentTheme() === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            syncIcon();
+        }
+        syncIcon();
+
+        const menuBtn = document.getElementById('menuBtn');
+        const navLinks = document.getElementById('navLinks');
+        const menuIcon = document.getElementById('menuIcon');
+
+        menuBtn.addEventListener('click', () => {
+            const open = navLinks.classList.toggle('active');
+            menuIcon.className = open ? 'fas fa-xmark' : 'fas fa-bars';
+            document.body.classList.toggle('lock-scroll', open);
+        });
+
+        navLinks.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+            navLinks.classList.remove('active');
+            menuIcon.className = 'fas fa-bars';
+            document.body.classList.remove('lock-scroll');
+        }));
+
+        function openModal(id) {
+            document.getElementById(id).classList.add('active');
+            document.body.classList.add('lock-scroll');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+            document.body.classList.remove('lock-scroll');
+        }
+
+        document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => {
+            if (e.target === o) closeModal(o.id);
+        }));
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                closeModal('termsModal');
+                closeModal('privacyModal');
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const hash = window.location.hash;
+            if (hash === '#terms') openModal('termsModal');
+            if (hash === '#privacy') openModal('privacyModal');
+        });
+
+        function copyCmd() {
+            const text = document.getElementById('cmdCode').innerText.replace(/^\$ /gm, '');
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.textContent = '已複製';
+                setTimeout(() => { btn.textContent = '複製'; }, 2000);
+            });
+        }
+
+        const io = new IntersectionObserver(entries => {
+            entries.forEach(en => {
+                if (en.isIntersecting) {
+                    en.target.classList.add('in');
+                    io.unobserve(en.target);
+                }
+            });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+    </script>
+</body>
+
+</html>
