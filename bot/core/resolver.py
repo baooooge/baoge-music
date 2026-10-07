@@ -485,30 +485,97 @@ class UniversalResolver:
         title = og_title["content"].split(" - ")[0]
         return [{"title": title, "search_query": title, "webpage_url": url}]
 
-    def _score_music_candidate(self, title: str, uploader: str) -> int:
+    def _score_music_candidate(self, title: str, uploader: str, query: str = "", duration: int = 0) -> int:
         score = 0
         t = title.lower()
         u = uploader.lower()
+        q = query.lower() if query else ""
 
-        negatives = [
-            "live", "concert", "fancam", "cover", "reaction", "remix", 
-            "sped up", "slowed", "bass boosted", "1 hour", "10 hours", 
-            "loop", "inst", "instrumental", "karaoke"
+        negative_patterns = [
+            ("remix", 300),
+            ("re-mix", 300),
+            ("混音", 300),
+            ("重混", 300),
+            ("dj", 250),
+            ("cover", 250),
+            ("翻唱", 250),
+            ("fancam", 250),
+            ("reaction", 250),
+            ("反應", 250),
+            ("sped up", 250),
+            ("speed up", 250),
+            ("slowed", 250),
+            ("nightcore", 250),
+            ("bass boosted", 250),
+            ("8d audio", 250),
+            ("1 hour", 250),
+            ("10 hour", 250),
+            ("1hr", 250),
+            ("10hr", 250),
+            ("loop", 250),
+            ("karaoke", 180),
+            ("instrumental", 180),
+            ("inst", 150),
+            ("伴奏", 180),
+            ("純音樂", 180),
+            ("live", 140),
+            ("concert", 140),
+            ("現場", 140),
+            ("演唱會", 140)
         ]
-        for neg in negatives:
-            if neg in t:
-                score -= 50
 
-        if "topic" in u:
-            score += 80
+        for token, penalty in negative_patterns:
+            if token in t and token not in q:
+                score -= penalty
+
+        has_lyric_term = any(k in t for k in ["lyric", "lyrics", "歌詞"])
+        is_official_source = (
+            any(k in t for k in ["official", "官方", "studio", "錄音室", "工作室"]) or
+            any(k in u for k in ["topic", "vevo", "official", "官方", "records", "music", "entertainment", "channel"])
+        )
+        if has_lyric_term and not is_official_source:
+            score -= 220
+
+        if " - topic" in u or u.endswith(" topic"):
+            score += 160
+        elif "topic" in u:
+            score += 130
+
         if "vevo" in u:
-            score += 60
-        if "official audio" in t:
-            score += 70
-        if "official music video" in t or "official mv" in t:
-            score += 50
-        if "mv" in t:
-            score += 30
+            score += 120
+
+        if "official audio" in t or "官方音頻" in t:
+            score += 140
+        elif "official lyric video" in t or "official lyrics video" in t or "官方歌詞" in t:
+            score += 135
+        elif "official music video" in t or "official mv" in t or "官方mv" in t or "官方音樂" in t:
+            score += 130
+        elif "official video" in t or "official visualizer" in t or "官方完整版" in t:
+            score += 115
+        elif "official" in t or "官方" in t:
+            score += 90
+
+        if any(k in t for k in ["studio version", "錄音室", "工作室", "原版", "原唱", "original version"]):
+            score += 110
+
+        if "[mv]" in t or "(mv)" in t:
+            score += 45
+
+        if q:
+            tokens = [tok for tok in re.split(r"[\s\-_/]+", q) if len(tok) >= 2]
+            for tok in tokens:
+                if tok in u:
+                    score += 30
+                if tok in t:
+                    score += 20
+
+        if duration > 0:
+            if 90 <= duration <= 360:
+                score += 35
+            elif duration < 60:
+                score -= 160
+            elif duration > 600:
+                score -= 200
 
         return score
 
@@ -527,8 +594,8 @@ class UniversalResolver:
 
         search_target = query
         if not is_url:
-            opts["playlistend"] = 5
-            search_target = f"ytsearch5:{query} official audio"
+            opts["playlistend"] = 8
+            search_target = f"ytsearch8:{query} official"
 
         def _extract():
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -536,9 +603,9 @@ class UniversalResolver:
 
         try:
             info = await loop.run_in_executor(self.executor, _extract)
-            if not info:
+            if not info or ("entries" in info and not [e for e in info.get("entries", []) if e]):
                 if not is_url:
-                    search_target = f"ytsearch5:{query}"
+                    search_target = f"ytsearch8:{query}"
                     info = await loop.run_in_executor(self.executor, _extract)
                 if not info:
                     return []
@@ -555,7 +622,12 @@ class UniversalResolver:
             if not is_url and len(entries) > 1:
                 ranked = sorted(
                     entries,
-                    key=lambda x: self._score_music_candidate(x.get("title", ""), x.get("uploader", "")),
+                    key=lambda x: self._score_music_candidate(
+                        x.get("title", ""),
+                        x.get("uploader", ""),
+                        query=query,
+                        duration=int(x.get("duration") or 0)
+                    ),
                     reverse=True
                 )
                 chosen = ranked[0]
@@ -705,8 +777,9 @@ class UniversalResolver:
 
             def _extract():
                 with yt_dlp.YoutubeDL(opts) as ydl:
-                    query = clean_target if clean_target.startswith("http") else f"ytsearch1:{clean_target} official audio"
-                    return ydl.extract_info(query, download=False)
+                    if clean_target.startswith("http"):
+                        return ydl.extract_info(clean_target, download=False)
+                    return ydl.extract_info(f"ytsearch5:{clean_target} official", download=False)
 
             info = None
             async with self._extract_semaphore:
@@ -717,7 +790,28 @@ class UniversalResolver:
                     fut.set_result(None)
                 return None
             if "entries" in info and info["entries"]:
-                info = info["entries"][0]
+                valid_entries = [e for e in info["entries"] if e]
+                if len(valid_entries) > 1 and not clean_target.startswith("http"):
+                    ranked = sorted(
+                        valid_entries,
+                        key=lambda x: self._score_music_candidate(
+                            x.get("title", ""),
+                            x.get("uploader", ""),
+                            query=clean_target,
+                            duration=int(x.get("duration") or 0)
+                        ),
+                        reverse=True
+                    )
+                    info = ranked[0]
+                elif valid_entries:
+                    info = valid_entries[0]
+                else:
+                    info = None
+
+            if not info:
+                if not fut.done():
+                    fut.set_result(None)
+                return None
 
             stream_url = info.get("url")
             if not stream_url:
@@ -838,16 +932,28 @@ class UniversalResolver:
         try:
             info = await loop.run_in_executor(self.executor, _extract_search)
             if info and "entries" in info:
-                for entry in info["entries"]:
-                    if not entry:
-                        continue
-                    e_id = entry.get("id")
-                    if e_id and re.match(r"^[0-9A-Za-z_-]{11}$", str(e_id)) and e_id != video_id and e_id not in history_ids:
-                        return {
-                            "title": entry.get("title", "Recommended Track"),
-                            "search_query": f"https://www.youtube.com/watch?v={e_id}",
-                            "id": e_id
-                        }
+                valid_entries = [
+                    e for e in info["entries"]
+                    if e and e.get("id") and re.match(r"^[0-9A-Za-z_-]{11}$", str(e.get("id")))
+                    and e.get("id") != video_id and e.get("id") not in history_ids
+                ]
+                if valid_entries:
+                    ranked = sorted(
+                        valid_entries,
+                        key=lambda x: self._score_music_candidate(
+                            x.get("title", ""),
+                            x.get("uploader", ""),
+                            query=clean_seed,
+                            duration=int(x.get("duration") or 0)
+                        ),
+                        reverse=True
+                    )
+                    best = ranked[0]
+                    return {
+                        "title": best.get("title", "Recommended Track"),
+                        "search_query": f"https://www.youtube.com/watch?v={best.get('id')}",
+                        "id": best.get("id")
+                    }
         except Exception:
             pass
 
