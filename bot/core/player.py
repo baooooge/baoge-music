@@ -46,8 +46,8 @@ EQ_LABELS = {
 }
 
 DEFAULT_BEFORE_OPTS = (
-    "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-    "-multiple_requests 1 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
+    "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 "
+    "-reconnect_delay_max 5 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
 )
 
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
@@ -57,6 +57,16 @@ class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
             return
         self._process = None
         try:
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=0.2)
+                except Exception:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=0.1)
+                    except Exception:
+                        pass
             if proc.stdin:
                 try:
                     proc.stdin.close()
@@ -72,13 +82,6 @@ class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
                     proc.stderr.close()
                 except Exception:
                     pass
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=0.1)
-                except Exception:
-                    proc.kill()
-                    proc.wait(timeout=0.1)
         except Exception:
             pass
 
@@ -544,7 +547,7 @@ class GuildPlayer:
         if self.voice_client.is_playing() or self.voice_client.is_paused():
             self.voice_client.stop()
 
-        base_opts = "-vn -nostdin -sn -dn -threads 1 -b:a 64k"
+        base_opts = "-loglevel error -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
         eq_filter = EQ_PRESETS.get(self.current_eq, "")
         if eq_filter:
             base_opts += f' -af "{eq_filter}"'
@@ -787,7 +790,7 @@ class GuildPlayer:
                 if next_item.get("webpage_url") and not self.current.get("webpage_url", "").startswith("http"):
                     self.current["webpage_url"] = next_item["webpage_url"]
 
-                base_opts = "-vn -nostdin -sn -dn -threads 1 -b:a 64k"
+                base_opts = "-loglevel error -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
                 eq_filter = EQ_PRESETS.get(self.current_eq, "")
                 if eq_filter:
                     base_opts += f' -af "{eq_filter}"'
