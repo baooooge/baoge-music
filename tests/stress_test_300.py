@@ -390,7 +390,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     return metrics
 
 async def main():
-    total_passes = 5
+    total_passes = 20
     print(f"Starting 300-Server Comprehensive Stress Test Suite ({total_passes} Iterations)")
     all_metrics = []
     for i in range(1, total_passes + 1):
@@ -399,9 +399,9 @@ async def main():
         if m["error_count"] > 0:
             print(f"Pass {i} failed with errors! Halting execution.")
             sys.exit(1)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
 
-    print("All 5 Stress Test Passes Completed with 100% Stability and Zero Errors!")
+    print("All 20 Stress Test Passes Completed with 100% Stability and Zero Errors!")
 
 if __name__ == "__main__":
     asyncio.run(main())

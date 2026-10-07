@@ -311,12 +311,6 @@ class MusicBot(commands.Bot):
         print("Ready and listening!")
 
     async def on_guild_join(self, guild: discord.Guild):
-        try:
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        except Exception:
-            pass
-
         inviter = None
         if guild.me.guild_permissions.view_audit_log:
             try:
@@ -361,11 +355,8 @@ bot = MusicBot()
 @bot.command(name="sync")
 @commands.is_owner()
 async def sync(ctx):
-    for guild in bot.guilds:
-        bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
     global_synced = await bot.tree.sync()
-    await ctx.send(f"Synced {len(global_synced)} commands to all {len(bot.guilds)} guilds.")
+    await ctx.send(f"Synced {len(global_synced)} global application commands.")
 
 async def play_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     if not current:
