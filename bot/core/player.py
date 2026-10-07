@@ -85,17 +85,6 @@ class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
         except Exception:
             pass
 
-def render_progress_bar(current: int, total: int, length: int = 14) -> str:
-    if total <= 0:
-        return f"`{current // 60:02d}:{current % 60:02d}` ──────────────"
-    current = min(current, total)
-    progress = current / total
-    filled = int(progress * length)
-    bar = "─" * filled + "🔘" + "─" * (length - filled)
-    cur_str = f"{current // 60:02d}:{current % 60:02d}"
-    tot_str = f"{total // 60:02d}:{total % 60:02d}"
-    return f"`{cur_str}` {bar} `{tot_str}`"
-
 class SkipToModal(discord.ui.Modal):
     def __init__(self, player):
         loc = player.locale
@@ -282,7 +271,7 @@ class PlayerControls(discord.ui.View):
     @discord.ui.button(label="循環", style=discord.ButtonStyle.secondary, row=1)
     async def loop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         modes = ["off", "single", "queue"]
-        current_idx = modes.index(self.player.loop_mode)
+        current_idx = modes.index(self.player.loop_mode) if self.player.loop_mode in modes else 0
         self.player.loop_mode = modes[(current_idx + 1) % len(modes)]
         loc = self.player.locale
         i18n = self.player.bot.i18n
@@ -540,31 +529,33 @@ class GuildPlayer:
                 pass
 
     async def seek(self, seconds: int):
-        if not self.voice_client or not self.current:
+        if not self.voice_client or not self.current or not self.current.get("stream_url"):
             return
 
         self.is_restarting_stream = True
-        if self.voice_client.is_playing() or self.voice_client.is_paused():
-            self.voice_client.stop()
+        try:
+            if self.voice_client.is_playing() or self.voice_client.is_paused():
+                self.voice_client.stop()
 
-        base_opts = "-loglevel error -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
-        eq_filter = EQ_PRESETS.get(self.current_eq, "")
-        if eq_filter:
-            base_opts += f' -af "{eq_filter}"'
+            base_opts = "-loglevel error -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
+            eq_filter = EQ_PRESETS.get(self.current_eq, "")
+            if eq_filter:
+                base_opts += f' -af "{eq_filter}"'
 
-        clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", DEFAULT_BEFORE_OPTS)).strip()
-        before_opts = f"{clean_before} -ss {seconds}"
+            clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", DEFAULT_BEFORE_OPTS)).strip()
+            before_opts = f"{clean_before} -ss {seconds}"
 
-        raw_source = SafeFFmpegPCMAudio(
-            self.current["stream_url"],
-            before_options=before_opts,
-            options=base_opts
-        )
-        audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
-        self.track_start_time = time.time() - seconds
-        self.voice_client.play(audio_source, after=self._after_playback)
-        await asyncio.sleep(0.3)
-        self.is_restarting_stream = False
+            raw_source = SafeFFmpegPCMAudio(
+                self.current["stream_url"],
+                before_options=before_opts,
+                options=base_opts
+            )
+            audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
+            self.track_start_time = time.time() - seconds
+            self.voice_client.play(audio_source, after=self._after_playback)
+            await asyncio.sleep(0.3)
+        finally:
+            self.is_restarting_stream = False
         await self.update_panel_inplace(force=True)
 
     async def set_eq(self, eq_name: str):
@@ -677,22 +668,23 @@ class GuildPlayer:
             return await interaction.response.send_message(msgs.get(loc, "Already voted."), ephemeral=True)
 
         self.skip_votes.add(user.id)
-        if len(self.skip_votes) >= required_votes:
+        current_votes = len(self.skip_votes)
+        if current_votes >= required_votes:
             self.skip_votes.clear()
             self.voice_client.stop()
             msgs = {
-                "zh_TW": f"投票通過 ({len(self.skip_votes)}/{required_votes})，已跳過當前歌曲！",
-                "zh_CN": f"投票通过 ({len(self.skip_votes)}/{required_votes})，已跳过当前歌曲！",
-                "en_US": f"Vote passed! Skipped track.",
-                "ja_JP": f"投票が可決されました！曲をスキップします。"
+                "zh_TW": f"投票通過 ({current_votes}/{required_votes})，已跳過當前歌曲！",
+                "zh_CN": f"投票通过 ({current_votes}/{required_votes})，已跳过当前歌曲！",
+                "en_US": f"Vote passed! ({current_votes}/{required_votes}) Skipped track.",
+                "ja_JP": f"投票が可決されました！({current_votes}/{required_votes}) 曲をスキップします。"
             }
             return await interaction.response.send_message(msgs.get(loc, "Vote passed."))
         else:
             msgs = {
-                "zh_TW": f"跳過投票已記錄：目前 {len(self.skip_votes)}/{required_votes} 票。",
-                "zh_CN": f"跳过投票已记录：当前 {len(self.skip_votes)}/{required_votes} 票。",
-                "en_US": f"Skip vote registered: {len(self.skip_votes)}/{required_votes}.",
-                "ja_JP": f"スキップ投票を受け付けました：現在 {len(self.skip_votes)}/{required_votes} 票。"
+                "zh_TW": f"跳過投票已記錄：目前 {current_votes}/{required_votes} 票。",
+                "zh_CN": f"跳过投票已记录：当前 {current_votes}/{required_votes} 票。",
+                "en_US": f"Skip vote registered: {current_votes}/{required_votes}.",
+                "ja_JP": f"スキップ投票を受け付けました：現在 {current_votes}/{required_votes} 票。"
             }
             return await interaction.response.send_message(msgs.get(loc, "Vote recorded."))
 

@@ -306,6 +306,22 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     await asyncio.gather(*cmd_tasks, return_exceptions=True)
     cmd_duration = time.time() - cmd_t0
 
+    test_cands = [
+        {"title": f"Song_{pass_number} (Remix)", "uploader": "DJ Random", "duration": 180},
+        {"title": f"Song_{pass_number} (Official Lyric Video)", "uploader": "Official Artist", "duration": 210},
+        {"title": f"Song_{pass_number} (Cover)", "uploader": "Acoustic Fan", "duration": 210},
+        {"title": f"Song_{pass_number}", "uploader": f"Artist {pass_number} - Topic", "duration": 210}
+    ]
+    ranked_cands = sorted(
+        test_cands,
+        key=lambda c: bot.resolver._score_music_candidate(
+            c["title"], c["uploader"], query=f"Song_{pass_number}", duration=c["duration"]
+        ),
+        reverse=True
+    )
+    if "Official" not in ranked_cands[0]["title"] and "Topic" not in ranked_cands[0]["uploader"]:
+        errors.append("Search candidate engine failed to rank official or topic track at top")
+
     reload_t0 = time.time()
     from main import perform_hot_reload, save_playback_state, restore_playback_state, STATE_FILE
     reload_success, reload_msg = await perform_hot_reload(bot)

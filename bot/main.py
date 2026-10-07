@@ -664,37 +664,43 @@ async def restore_playback_state(bot_instance: commands.Bot):
     except Exception:
         return
 
-    for guild_id_str, data in state.items():
-        guild_id = int(guild_id_str)
-        guild = bot_instance.get_guild(guild_id)
-        if not guild:
-            continue
-        v_channel = guild.get_channel(data.get("voice_channel_id"))
-        if not v_channel:
-            continue
+    sem = asyncio.Semaphore(5)
 
-        player = bot_instance.get_player(guild_id)
-        if data.get("text_channel_id"):
-            player.current_text_channel = guild.get_channel(data["text_channel_id"])
-        player.volume = data.get("volume", 1.0)
-        player.loop_mode = data.get("loop_mode", "off")
-        player.autoplay = data.get("autoplay", True)
-        player.current_eq = data.get("current_eq", "flat")
-        player.queue = data.get("queue", [])
+    async def _restore_single_guild(guild_id_str, data):
+        async with sem:
+            guild_id = int(guild_id_str)
+            guild = bot_instance.get_guild(guild_id)
+            if not guild:
+                return
+            v_channel = guild.get_channel(data.get("voice_channel_id"))
+            if not v_channel:
+                return
 
-        current_item = data.get("current")
-        if current_item:
-            player.queue.insert(0, current_item)
+            player = bot_instance.get_player(guild_id)
+            if data.get("text_channel_id"):
+                player.current_text_channel = guild.get_channel(data["text_channel_id"])
+            player.volume = data.get("volume", 1.0)
+            player.loop_mode = data.get("loop_mode", "off")
+            player.autoplay = data.get("autoplay", True)
+            player.current_eq = data.get("current_eq", "flat")
+            player.queue = data.get("queue", [])
 
-        try:
-            if not player.voice_client or not player.voice_client.is_connected():
-                player.voice_client = await v_channel.connect(self_deaf=True)
-            player.ensure_audio_task()
-            seek_pos = data.get("elapsed", 0)
-            if seek_pos > 0:
-                asyncio.create_task(_delayed_seek(player, seek_pos))
-        except Exception:
-            pass
+            current_item = data.get("current")
+            if current_item:
+                player.queue.insert(0, current_item)
+
+            try:
+                if not player.voice_client or not player.voice_client.is_connected():
+                    player.voice_client = await v_channel.connect(self_deaf=True)
+                player.ensure_audio_task()
+                seek_pos = data.get("elapsed", 0)
+                if seek_pos > 0:
+                    asyncio.create_task(_delayed_seek(player, seek_pos))
+            except Exception:
+                pass
+
+    tasks = [_restore_single_guild(gid, d) for gid, d in state.items()]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
     try:
