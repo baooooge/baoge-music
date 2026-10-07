@@ -6,3 +6,4 @@ beautifulsoup4
 aiohttp
 requests
 pynacl
+uvloop; sys_platform != "win32"

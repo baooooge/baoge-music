@@ -3,10 +3,16 @@ services:
     build: .
     container_name: baoge-music
     restart: always
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
+      - ./bot:/app/bot
     env_file:
       - .env
     environment:
       - TZ=Asia/Taipei
+      - PYTHONUNBUFFERED=1

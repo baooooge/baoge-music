@@ -47,7 +47,7 @@ EQ_LABELS = {
 
 DEFAULT_BEFORE_OPTS = (
     "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-    "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
+    "-multiple_requests 1 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
 )
 
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
@@ -57,13 +57,28 @@ class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
             return
         self._process = None
         try:
+            if proc.stdin:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+            if proc.stdout:
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
+            if proc.stderr:
+                try:
+                    proc.stderr.close()
+                except Exception:
+                    pass
             if proc.poll() is None:
                 proc.terminate()
                 try:
-                    proc.wait(timeout=0.2)
+                    proc.wait(timeout=0.1)
                 except Exception:
                     proc.kill()
-                    proc.wait(timeout=0.2)
+                    proc.wait(timeout=0.1)
         except Exception:
             pass
 
@@ -472,6 +487,7 @@ class GuildPlayer:
         self.current_text_channel: Optional[discord.TextChannel] = None
         self.panel_message: Optional[discord.Message] = None
         self.play_next_event = asyncio.Event()
+        self.queue_event = asyncio.Event()
         self.autoplay = True
         self.loop_mode = "off"
         self.volume = 1.0
@@ -483,7 +499,16 @@ class GuildPlayer:
         self.skip_votes: Set[int] = set()
         self.ticker_task: Optional[asyncio.Task] = None
         self.last_panel_update = 0.0
-        self.audio_task = self.bot.loop.create_task(self.audio_loop())
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.get_event_loop()
+        self.audio_task = self.loop.create_task(self.audio_loop())
+
+    def ensure_audio_task(self):
+        self.queue_event.set()
+        if self.audio_task is None or self.audio_task.done():
+            self.audio_task = self.loop.create_task(self.audio_loop())
 
     @property
     def locale(self) -> str:
@@ -491,8 +516,7 @@ class GuildPlayer:
         return self.bot.get_guild_locale(guild) if guild else "zh_TW"
 
     def start_ticker(self):
-        self.stop_ticker()
-        self.ticker_task = self.bot.loop.create_task(self._ticker_loop())
+        pass
 
     def stop_ticker(self):
         if self.ticker_task and not self.ticker_task.done():
@@ -520,7 +544,7 @@ class GuildPlayer:
         if self.voice_client.is_playing() or self.voice_client.is_paused():
             self.voice_client.stop()
 
-        base_opts = "-vn -nostdin -sn -dn"
+        base_opts = "-vn -nostdin -sn -dn -threads 1 -b:a 64k"
         eq_filter = EQ_PRESETS.get(self.current_eq, "")
         if eq_filter:
             base_opts += f' -af "{eq_filter}"'
@@ -551,7 +575,7 @@ class GuildPlayer:
         if self.is_restarting_stream:
             return
         self.stop_ticker()
-        self.bot.loop.call_soon_threadsafe(self.play_next_event.set)
+        self.loop.call_soon_threadsafe(self.play_next_event.set)
 
     async def play_previous(self, interaction: Optional[discord.Interaction] = None):
         loc = self.locale
@@ -671,7 +695,10 @@ class GuildPlayer:
 
     async def audio_loop(self):
         if hasattr(self.bot, "wait_until_ready"):
-            await self.bot.wait_until_ready()
+            try:
+                await self.bot.wait_until_ready()
+            except Exception:
+                pass
         idle_counter = 0
         while not self.bot.is_closed():
             try:
@@ -719,7 +746,11 @@ class GuildPlayer:
                 if not self.queue and self.loop_mode != "single":
                     self.current = None
                     self.current_meta = None
-                    await asyncio.sleep(2)
+                    self.queue_event.clear()
+                    try:
+                        await asyncio.wait_for(self.queue_event.wait(), timeout=2.0)
+                    except (asyncio.TimeoutError, TimeoutError):
+                        pass
                     continue
 
                 if self.loop_mode != "single":
@@ -756,7 +787,7 @@ class GuildPlayer:
                 if next_item.get("webpage_url") and not self.current.get("webpage_url", "").startswith("http"):
                     self.current["webpage_url"] = next_item["webpage_url"]
 
-                base_opts = "-vn -nostdin -sn -dn"
+                base_opts = "-vn -nostdin -sn -dn -threads 1 -b:a 64k"
                 eq_filter = EQ_PRESETS.get(self.current_eq, "")
                 if eq_filter:
                     base_opts += f' -af "{eq_filter}"'
@@ -802,15 +833,6 @@ class GuildPlayer:
         if thumb and thumb.startswith("http"):
             embed.set_thumbnail(url=thumb)
 
-        if self.voice_client and self.voice_client.is_paused():
-            current_pos = max(0, int(self.pause_time - self.track_start_time))
-        else:
-            current_pos = max(0, int(time.time() - self.track_start_time)) if self.track_start_time > 0 else 0
-
-        total_duration = int(self.current.get("duration") or 0)
-        progress_str = render_progress_bar(current_pos, total_duration)
-
-        embed.add_field(name=i18n.get("PANEL_PROGRESS", loc), value=progress_str, inline=False)
         embed.add_field(name=i18n.get("PANEL_UPLOADER", loc), value=self.current.get("uploader", "Unknown"), inline=True)
         embed.add_field(name=i18n.get("PANEL_QUEUE", loc), value=f"{len(self.queue)}", inline=True)
 

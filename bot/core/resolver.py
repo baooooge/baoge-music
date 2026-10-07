@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import aiohttp
-import requests
 from bs4 import BeautifulSoup
 import yt_dlp
 
@@ -67,6 +66,7 @@ class UniversalResolver:
         self._flight_lock = asyncio.Lock()
         self._in_flight_searches: Dict[str, asyncio.Future] = {}
         self._in_flight_streams: Dict[str, asyncio.Future] = {}
+        self._sponsorblock_cache = OrderedDict()
 
         self.kkbox_client_id = os.getenv("KKBOX_CLIENT_ID", "")
         self.kkbox_client_secret = os.getenv("KKBOX_CLIENT_SECRET", "")
@@ -318,28 +318,25 @@ class UniversalResolver:
 
         clean_url = url.split("?")[0]
         results = []
-        loop = asyncio.get_running_loop()
 
-        def _fetch_html():
-            session = requests.Session()
-            req_headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Referer": "https://www.kkbox.com/"
-            }
-            if self.kkbox_cookie:
-                req_headers["Cookie"] = self.kkbox_cookie
-            session.headers.update(req_headers)
-            try:
-                resp = session.get(clean_url, timeout=10)
-                if resp.status_code == 200:
-                    return resp.text
-            except Exception:
-                pass
-            return ""
+        session = await self.get_session()
+        req_headers = {
+            "User-Agent": self.headers["User-Agent"],
+            "Accept-Language": self.headers["Accept-Language"],
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://www.kkbox.com/"
+        }
+        if self.kkbox_cookie:
+            req_headers["Cookie"] = self.kkbox_cookie
 
-        html = await loop.run_in_executor(self.executor, _fetch_html)
+        html = ""
+        try:
+            async with session.get(clean_url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+        except Exception:
+            pass
+
         if not html:
             return []
 
@@ -602,7 +599,10 @@ class UniversalResolver:
     async def _fetch_sponsorblock_offset(self, video_id: str) -> float:
         if not video_id or not re.match(r"^[0-9A-Za-z_-]{11}$", str(video_id)):
             return 0.0
+        if video_id in self._sponsorblock_cache:
+            return self._sponsorblock_cache[video_id]
         url = f"https://sponsor.ajay.app/api/skipSegments?videoID={video_id}&categories=[\"music_offtopic\"]"
+        offset = 0.0
         try:
             session = await self.get_session()
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=2)) as resp:
@@ -613,10 +613,14 @@ class UniversalResolver:
                         if segment_range and len(segment_range) == 2:
                             start, end = segment_range
                             if start <= 2.0 and end > 2.0:
-                                return float(end)
+                                offset = float(end)
+                                break
         except Exception:
             pass
-        return 0.0
+        if len(self._sponsorblock_cache) > 2000:
+            self._sponsorblock_cache.popitem(last=False)
+        self._sponsorblock_cache[video_id] = offset
+        return offset
 
     async def get_live_stream(self, target: str) -> Optional[Dict[str, Any]]:
         now = time.time()
@@ -636,7 +640,7 @@ class UniversalResolver:
         try:
             reconnect_flags = (
                 "-reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-                "-multiple_requests 1 -rw_timeout 15000000 -probesize 32M -analyzeduration 0"
+                "-multiple_requests 1 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
             )
 
             if "streetvoice.com" in target:

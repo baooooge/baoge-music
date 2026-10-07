@@ -21,3 +21,7 @@ logs/
 .vscode/
 .DS_Store
 Thumbs.db
+tests/
+*.tmp
+*.bak
+data/state_snapshot.json
