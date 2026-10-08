@@ -4,6 +4,7 @@ import asyncio
 import random
 import time
 import logging
+import hashlib
 from typing import Optional, Dict
 import discord
 from discord import app_commands
@@ -21,6 +22,7 @@ if os.name != "nt":
 logging.getLogger("discord.player").setLevel(logging.WARNING)
 
 LOCALES_DIR = "/app/bot/locales" if os.path.exists("/app/bot/locales") else os.path.join(os.path.dirname(__file__), "locales")
+COMMANDS_HASH_FILE = "/app/bot/.commands_hash" if os.path.exists("/app/bot") else os.path.join(os.path.dirname(__file__), ".commands_hash")
 SUPPORT_GUILD_ID = int(os.getenv("SUPPORT_GUILD_ID", 1039860460389941338))
 SUPPORT_INVITE_URL = os.getenv("SUPPORT_INVITE_URL", "https://discord.com/invite/92BB9zGRmS")
 OFFICIAL_WEBSITE_URL = os.getenv("OFFICIAL_WEBSITE_URL", "https://musicbot.bybaoge.com/")
@@ -135,6 +137,8 @@ class MusicBot(commands.Bot):
         self.watcher_task = None
         self.guild_locales = {}
         self.i18n = i18n
+        self._last_presence_text = ""
+        self._last_presence_time = 0.0
 
     async def close(self):
         save_playback_state(self)
@@ -175,8 +179,27 @@ class MusicBot(commands.Bot):
                 print(f"Auto hot-reload result: {msg}")
 
     async def setup_hook(self):
-        await self.tree.sync()
-        print("Global application commands synced successfully.")
+        cmds = sorted([f"{c.name}:{getattr(c, 'description', '')}" for c in self.tree.get_commands()])
+        curr_hash = hashlib.sha256("".join(cmds).encode()).hexdigest()
+        force_sync = os.getenv("FORCE_SYNC_COMMANDS", "0") == "1"
+        prev_hash = ""
+        if os.path.exists(COMMANDS_HASH_FILE):
+            try:
+                with open(COMMANDS_HASH_FILE, "r", encoding="utf-8") as f:
+                    prev_hash = f.read().strip()
+            except Exception:
+                pass
+
+        if force_sync or curr_hash != prev_hash:
+            try:
+                await self.tree.sync()
+                with open(COMMANDS_HASH_FILE, "w", encoding="utf-8") as f:
+                    f.write(curr_hash)
+                print("Global application commands synced successfully.")
+            except Exception as e:
+                print(f"Command sync failed: {e}")
+        else:
+            print("Commands up to date. Skipped sync to prevent Gateway rate-limits.")
 
     def get_guild_locale(self, guild: Optional[discord.Guild]) -> str:
         if not guild:
@@ -205,20 +228,23 @@ class MusicBot(commands.Bot):
                 active_count = len(active_players)
                 guild_count = len(self.guilds)
 
+                now = time.time()
                 if active_count > 0:
-                    activity = discord.Activity(
-                        type=discord.ActivityType.listening,
-                        name=f"/play | 正在 {active_count} 個伺服器播放音樂"
-                    )
+                    text = f"/play | 正在 {active_count} 個伺服器播放音樂"
                 else:
+                    text = f"/play | 服務於 {guild_count} 個伺服器"
+
+                if text != self._last_presence_text or (now - self._last_presence_time > 300):
                     activity = discord.Activity(
                         type=discord.ActivityType.listening,
-                        name=f"/play | 服務於 {guild_count} 個伺服器"
+                        name=text
                     )
-                await self.change_presence(activity=activity, status=discord.Status.online)
+                    await self.change_presence(activity=activity, status=discord.Status.online)
+                    self._last_presence_text = text
+                    self._last_presence_time = now
             except Exception:
                 pass
-            await asyncio.sleep(30)
+            await asyncio.sleep(45)
 
     async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None):
         loc = self.get_guild_locale(guild)
@@ -643,8 +669,11 @@ def save_playback_state(bot_instance: commands.Bot):
 
 async def _delayed_seek(player, pos: int):
     await asyncio.sleep(2.0)
-    if player.voice_client and player.voice_client.is_playing():
-        await player.seek(pos)
+    try:
+        if player.voice_client and player.voice_client.is_playing():
+            await player.seek(pos)
+    except Exception:
+        pass
 
 async def restore_playback_state(bot_instance: commands.Bot):
     if not os.path.exists(STATE_FILE):
@@ -656,9 +685,10 @@ async def restore_playback_state(bot_instance: commands.Bot):
     except Exception:
         return
 
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(2)
 
-    async def _restore_single_guild(guild_id_str, data):
+    async def _restore_single_guild(guild_id_str, data, delay_seq: float):
+        await asyncio.sleep(delay_seq)
         async with sem:
             guild_id = int(guild_id_str)
             guild = bot_instance.get_guild(guild_id)
@@ -683,7 +713,7 @@ async def restore_playback_state(bot_instance: commands.Bot):
 
             try:
                 if not player.voice_client or not player.voice_client.is_connected():
-                    player.voice_client = await v_channel.connect(self_deaf=True)
+                    player.voice_client = await asyncio.wait_for(v_channel.connect(self_deaf=True), timeout=10.0)
                 player.ensure_audio_task()
                 seek_pos = data.get("elapsed", 0)
                 if seek_pos > 0:
@@ -691,7 +721,7 @@ async def restore_playback_state(bot_instance: commands.Bot):
             except Exception:
                 pass
 
-    tasks = [_restore_single_guild(gid, d) for gid, d in state.items()]
+    tasks = [_restore_single_guild(gid, d, idx * 0.4) for idx, (gid, d) in enumerate(state.items())]
     await asyncio.gather(*tasks, return_exceptions=True)
 
 async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
