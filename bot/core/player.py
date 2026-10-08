@@ -332,10 +332,9 @@ class PlayerControls(discord.ui.View):
         self.player.autoplay = False
         self.player.loop_mode = "off"
         self.player.stop_ticker()
-        if self.player.voice_client:
-            if self.player.voice_client.is_playing() or self.player.voice_client.is_paused():
-                self.player.voice_client.stop()
-            await self.player.voice_client.disconnect()
+        vc = self.player.voice_client
+        if vc and (vc.is_playing() or vc.is_paused()):
+            vc.stop()
         msgs = {
             "zh_TW": "已清空隊列並離開語音頻道。",
             "zh_CN": "已清空队列并离开语音频道。",
@@ -343,6 +342,8 @@ class PlayerControls(discord.ui.View):
             "ja_JP": "再生を停止し、ボイスチャンネルから退出しました。"
         }
         await interaction.response.send_message(msgs.get(loc, "Stopped."), ephemeral=True)
+        if vc:
+            await vc.disconnect()
 
     @discord.ui.button(label="音量 -10%", style=discord.ButtonStyle.secondary, row=2)
     async def voldown_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

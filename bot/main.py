@@ -523,11 +523,12 @@ async def stop(interaction: discord.Interaction):
     player.history.clear()
     player.autoplay = False
     player.loop_mode = "off"
-    if player.voice_client:
-        if player.voice_client.is_playing() or player.voice_client.is_paused():
-            player.voice_client.stop()
-        await player.voice_client.disconnect()
+    vc = player.voice_client
+    if vc and (vc.is_playing() or vc.is_paused()):
+        vc.stop()
     await interaction.response.send_message("Stopped.")
+    if vc:
+        await vc.disconnect()
 
 @bot.tree.command(name="queue", description="查看待播清單 / View queue / キュー確認")
 async def queue(interaction: discord.Interaction):
