@@ -322,6 +322,15 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     if "Official" not in ranked_cands[0]["title"] and "Topic" not in ranked_cands[0]["uploader"]:
         errors.append("Search candidate engine failed to rank official or topic track at top")
 
+    p_seed_check = bot.get_player(guilds[0].id)
+    p_seed_check.last_played_meta = {"title": "Test Seed Track", "uploader": "Seed Singer", "id": "seed1234567"}
+    p_seed_check.current = None
+    p_seed_check.current_meta = None
+    p_seed_check.autoplay = True
+    seed_found = p_seed_check.current or p_seed_check.current_meta or p_seed_check.last_played_meta
+    if not seed_found or seed_found.get("id") != "seed1234567":
+        errors.append("Autoplay seed continuity check failed")
+
     reload_t0 = time.time()
     from main import perform_hot_reload, save_playback_state, restore_playback_state, STATE_FILE
     reload_success, reload_msg = await perform_hot_reload(bot)

@@ -141,6 +141,8 @@ class UniversalResolver:
                 res = await self._resolve_spotify(query)
             elif "music.apple.com" in query:
                 res = await self._resolve_apple_music(query)
+            elif "bilibili.com" in query or "b23.tv" in query:
+                res = await self._resolve_bilibili(query)
             else:
                 res = await self._resolve_raw_search(query)
 
@@ -484,6 +486,105 @@ class UniversalResolver:
             return []
         title = og_title["content"].split(" - ")[0]
         return [{"title": title, "search_query": title, "webpage_url": url}]
+
+    async def _resolve_bilibili(self, url: str) -> List[Dict[str, Any]]:
+        target_url = url.strip()
+        if "b23.tv" in target_url:
+            session = await self.get_session()
+            try:
+                async with session.get(target_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    target_url = str(resp.url)
+            except Exception:
+                pass
+
+        bv_match = re.search(r"(BV[0-9A-Za-z]{10})", target_url)
+        if not bv_match:
+            return await self._resolve_raw_search(target_url)
+
+        bvid = bv_match.group(1)
+        video_page_url = f"https://www.bilibili.com/video/{bvid}/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Referer": "https://www.bilibili.com/",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+
+        session = await self.get_session()
+        html = ""
+        try:
+            async with session.get(video_page_url, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    raw = await resp.read()
+                    try:
+                        import gzip
+                        html = gzip.decompress(raw).decode("utf-8", errors="ignore")
+                    except Exception:
+                        html = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+
+        if not html:
+            return await self._resolve_raw_search(video_page_url)
+
+        m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", html)
+        if not m:
+            return await self._resolve_raw_search(video_page_url)
+
+        try:
+            state = json.loads(m.group(1))
+            video_data = state.get("videoData", {})
+            results = []
+
+            ugc_season = video_data.get("ugc_season", {})
+            if ugc_season and "sections" in ugc_season:
+                for sec in ugc_season.get("sections", []):
+                    for ep in sec.get("episodes", []):
+                        ep_bvid = ep.get("bvid") or bvid
+                        ep_title = ep.get("title") or video_data.get("title") or "Bilibili Track"
+                        ep_url = f"https://www.bilibili.com/video/{ep_bvid}/"
+                        results.append({
+                            "title": ep_title,
+                            "search_query": ep_url,
+                            "id": ep_bvid,
+                            "duration": int(ep.get("arc", {}).get("duration") or 0),
+                            "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
+                            "thumbnail": ep.get("arc", {}).get("pic") or video_data.get("pic") or "",
+                            "webpage_url": ep_url
+                        })
+                if results:
+                    return results[:100]
+
+            pages = video_data.get("pages", [])
+            if len(pages) > 1:
+                for p in pages:
+                    p_num = p.get("page", 1)
+                    p_title = p.get("part") or f"{video_data.get('title')} P{p_num}"
+                    p_url = f"https://www.bilibili.com/video/{bvid}/?p={p_num}"
+                    results.append({
+                        "title": p_title,
+                        "search_query": p_url,
+                        "id": f"{bvid}_p{p_num}",
+                        "duration": int(p.get("duration") or 0),
+                        "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
+                        "thumbnail": video_data.get("pic") or "",
+                        "webpage_url": p_url
+                    })
+                if results:
+                    return results[:100]
+
+            single_title = video_data.get("title") or "Bilibili Track"
+            return [{
+                "title": single_title,
+                "search_query": video_page_url,
+                "id": bvid,
+                "duration": int(video_data.get("duration") or 0),
+                "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
+                "thumbnail": video_data.get("pic") or "",
+                "webpage_url": video_page_url
+            }]
+        except Exception:
+            return await self._resolve_raw_search(video_page_url)
 
     def _score_music_candidate(self, title: str, uploader: str, query: str = "", duration: int = 0) -> int:
         score = 0
@@ -920,40 +1021,54 @@ class UniversalResolver:
         if current_info.get("uploader") and current_info["uploader"] != "Unknown":
             query_seed = f"{query_seed} {current_info['uploader']}"
 
-        clean_seed = re.sub(r"[\(\[].*?[\)\]]", "", query_seed).strip()
+        clean_seed = re.sub(r"[\(\[【《『].*?[\)\]】》』]", "", query_seed).strip()
         search_query = f"ytsearch5:{clean_seed} official audio"
         opts = dict(self.ydl_opts_meta)
         opts["playlistend"] = 5
 
-        def _extract_search():
+        def _extract_search(q_target):
             with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(search_query, download=False)
+                return ydl.extract_info(q_target, download=False)
 
         try:
-            info = await loop.run_in_executor(self.executor, _extract_search)
+            info = await loop.run_in_executor(self.executor, lambda: _extract_search(search_query))
+            valid_entries = []
             if info and "entries" in info:
                 valid_entries = [
                     e for e in info["entries"]
                     if e and e.get("id") and re.match(r"^[0-9A-Za-z_-]{11}$", str(e.get("id")))
                     and e.get("id") != video_id and e.get("id") not in history_ids
                 ]
-                if valid_entries:
-                    ranked = sorted(
-                        valid_entries,
-                        key=lambda x: self._score_music_candidate(
-                            x.get("title", ""),
-                            x.get("uploader", ""),
-                            query=clean_seed,
-                            duration=int(x.get("duration") or 0)
-                        ),
-                        reverse=True
-                    )
-                    best = ranked[0]
-                    return {
-                        "title": best.get("title", "Recommended Track"),
-                        "search_query": f"https://www.youtube.com/watch?v={best.get('id')}",
-                        "id": best.get("id")
-                    }
+
+            if not valid_entries:
+                simple_title = re.sub(r"[【】《》『』\[\]\(\)\-_/]+", " ", current_info.get("title", "")).strip()
+                if simple_title:
+                    fallback_query = f"ytsearch5:{simple_title} official"
+                    fallback_info = await loop.run_in_executor(self.executor, lambda: _extract_search(fallback_query))
+                    if fallback_info and "entries" in fallback_info:
+                        valid_entries = [
+                            e for e in fallback_info["entries"]
+                            if e and e.get("id") and re.match(r"^[0-9A-Za-z_-]{11}$", str(e.get("id")))
+                            and e.get("id") != video_id and e.get("id") not in history_ids
+                        ]
+
+            if valid_entries:
+                ranked = sorted(
+                    valid_entries,
+                    key=lambda x: self._score_music_candidate(
+                        x.get("title", ""),
+                        x.get("uploader", ""),
+                        query=clean_seed or current_info.get("title", ""),
+                        duration=int(x.get("duration") or 0)
+                    ),
+                    reverse=True
+                )
+                best = ranked[0]
+                return {
+                    "title": best.get("title", "Recommended Track"),
+                    "search_query": f"https://www.youtube.com/watch?v={best.get('id')}",
+                    "id": best.get("id")
+                }
         except Exception:
             pass
 

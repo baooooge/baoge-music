@@ -475,6 +475,7 @@ class GuildPlayer:
         self.history: List[Dict[str, Any]] = []
         self.current: Optional[Dict[str, Any]] = None
         self.current_meta: Optional[Dict[str, Any]] = None
+        self.last_played_meta: Optional[Dict[str, Any]] = None
         self.voice_client: Optional[discord.VoiceClient] = None
         self.current_text_channel: Optional[discord.TextChannel] = None
         self.panel_message: Optional[discord.Message] = None
@@ -723,20 +724,21 @@ class GuildPlayer:
                 elif not self.queue:
                     if self.loop_mode == "queue" and self.current_meta:
                         self.queue.append(self.current_meta)
-                    if not self.queue and self.autoplay and (self.current or self.current_meta):
-                        seed_info = self.current if self.current else self.current_meta
-                        hist_ids = [str(h.get("id")) for h in self.history if h.get("id")]
-                        rec = await self.resolver.get_autoplay_recommendation(seed_info, hist_ids)
-                        if rec:
-                            rec["requester_id"] = self.bot.user.id
-                            ap_names = {
-                                "zh_TW": "自動推薦續播",
-                                "zh_CN": "自动推荐续播",
-                                "en_US": "Autoplay",
-                                "ja_JP": "自動連続再生"
-                            }
-                            rec["requester_name"] = ap_names.get(self.locale, "Autoplay")
-                            self.queue.append(rec)
+                    if not self.queue and self.autoplay:
+                        seed_info = self.current or self.current_meta or self.last_played_meta or (self.history[-1] if self.history else None)
+                        if seed_info:
+                            hist_ids = [str(h.get("id")) for h in self.history if h.get("id")]
+                            rec = await self.resolver.get_autoplay_recommendation(seed_info, hist_ids)
+                            if rec:
+                                rec["requester_id"] = self.bot.user.id
+                                ap_names = {
+                                    "zh_TW": "自動推薦續播",
+                                    "zh_CN": "自动推荐续播",
+                                    "en_US": "Autoplay",
+                                    "ja_JP": "自動連続再生"
+                                }
+                                rec["requester_name"] = ap_names.get(self.locale, "Autoplay")
+                                self.queue.append(rec)
 
                 if not self.queue and self.loop_mode != "single":
                     self.current = None
@@ -766,6 +768,7 @@ class GuildPlayer:
 
                 self.current = track_stream
                 self.current_meta = next_item
+                self.last_played_meta = next_item
 
                 if next_item.get("title") and (track_stream.get("title") in ["Unknown", "StreetVoice Song", "StreetVoice Track"] or re.match(r"^\d+-\d+-\d+$", str(track_stream.get("title", "")))):
                     self.current["title"] = next_item["title"]
