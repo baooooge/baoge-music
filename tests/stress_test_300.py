@@ -322,6 +322,21 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     if "Official" not in ranked_cands[0]["title"] and "Topic" not in ranked_cands[0]["uploader"]:
         errors.append("Search candidate engine failed to rank official or topic track at top")
 
+    obscure_query = f"Obscure_Indie_Track_{pass_number} Singer_{pass_number}"
+    relevance_cands = [
+        {"title": "Unrelated Famous Pop Song [Official Music Video]", "uploader": "Mega Star - Topic", "duration": 210},
+        {"title": f"Obscure_Indie_Track_{pass_number} - Singer_{pass_number}", "uploader": "Small Indie Account", "duration": 210}
+    ]
+    relevance_ranked = sorted(
+        relevance_cands,
+        key=lambda c: bot.resolver._score_music_candidate(
+            c["title"], c["uploader"], query=obscure_query, duration=c["duration"]
+        ),
+        reverse=True
+    )
+    if "Obscure" not in relevance_ranked[0]["title"]:
+        errors.append("Search engine falsely preferred unrelated official MV over exact obscure match")
+
     p_seed_check = bot.get_player(guilds[0].id)
     p_seed_check.last_played_meta = {"title": "Test Seed Track", "uploader": "Seed Singer", "id": "seed1234567"}
     p_seed_check.current = None

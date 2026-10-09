@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import re
+import difflib
 import time
 from typing import Dict, Any, List, Optional
 from collections import OrderedDict
@@ -586,11 +587,18 @@ class UniversalResolver:
         except Exception:
             return await self._resolve_raw_search(video_page_url)
 
+    @staticmethod
+    def _clean_title_for_comparison(title: str) -> str:
+        cleaned = re.sub(r"[\(\[【《『].*?[\)\]】》』]", "", title)
+        cleaned = re.sub(r"(?i)\b(official\s*(music)?\s*(video|audio|lyric|lyrics)?|mv|hd|4k|audio|lyrics?|full\s*song|hq)\b", "", cleaned)
+        cleaned = re.sub(r"[\s\-_/|]+", " ", cleaned).strip().lower()
+        return cleaned
+
     def _score_music_candidate(self, title: str, uploader: str, query: str = "", duration: int = 0) -> int:
         score = 0
         t = title.lower()
         u = uploader.lower()
-        q = query.lower() if query else ""
+        q = query.lower().strip() if query else ""
 
         negative_patterns = [
             ("remix", 300),
@@ -619,63 +627,81 @@ class UniversalResolver:
             ("inst", 150),
             ("伴奏", 180),
             ("純音樂", 180),
-            ("live", 140),
-            ("concert", 140),
-            ("現場", 140),
-            ("演唱會", 140)
+            ("live", 120),
+            ("concert", 120),
+            ("現場", 120),
+            ("演唱會", 120)
         ]
 
         for token, penalty in negative_patterns:
             if token in t and token not in q:
                 score -= penalty
 
-        has_lyric_term = any(k in t for k in ["lyric", "lyrics", "歌詞"])
-        is_official_source = (
-            any(k in t for k in ["official", "官方", "studio", "錄音室", "工作室"]) or
-            any(k in u for k in ["topic", "vevo", "official", "官方", "records", "music", "entertainment", "channel"])
-        )
-        if has_lyric_term and not is_official_source:
-            score -= 220
+        if q:
+            clean_q = self._clean_title_for_comparison(q)
+            clean_t = self._clean_title_for_comparison(title)
 
-        if " - topic" in u or u.endswith(" topic"):
-            score += 160
-        elif "topic" in u:
-            score += 130
+            q_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_q) if len(tok) >= 1]
+            t_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_t) if len(tok) >= 1]
 
-        if "vevo" in u:
-            score += 120
+            matched_tokens = 0
+            if q_tokens:
+                for tok in q_tokens:
+                    if tok in clean_t or tok in u:
+                        matched_tokens += 1
+                all_tokens_matched = (matched_tokens == len(q_tokens))
+            else:
+                all_tokens_matched = False
 
-        if "official audio" in t or "官方音頻" in t:
-            score += 140
-        elif "official lyric video" in t or "official lyrics video" in t or "官方歌詞" in t:
-            score += 135
-        elif "official music video" in t or "official mv" in t or "官方mv" in t or "官方音樂" in t:
-            score += 130
-        elif "official video" in t or "official visualizer" in t or "官方完整版" in t:
-            score += 115
+            is_direct_match = (clean_q and (clean_q in clean_t or clean_t in clean_q)) or all_tokens_matched
+            if is_direct_match:
+                score += 500
+                if clean_q == clean_t or (q_tokens and t_tokens and set(q_tokens) == set(t_tokens)):
+                    score += 200
+
+            if q_tokens:
+                ratio = matched_tokens / len(q_tokens)
+                score += int(ratio * 300)
+                if ratio < 0.5:
+                    score -= 400
+            else:
+                if q in t:
+                    score += 300
+                else:
+                    score -= 300
+
+            if clean_q and clean_t:
+                sim = difflib.SequenceMatcher(None, clean_q, clean_t).ratio()
+                score += int(sim * 150)
+                if sim < 0.2 and matched_tokens == 0:
+                    score -= 500
+
+        is_topic = " - topic" in u or u.endswith(" topic") or "topic" in u
+        if is_topic:
+            score += 35
+        elif "vevo" in u:
+            score += 25
+
+        if any(k in t for k in ["official audio", "官方音頻"]):
+            score += 30
+        elif any(k in t for k in ["official lyric video", "official lyrics video", "官方歌詞"]):
+            score += 28
+        elif any(k in t for k in ["official music video", "official mv", "官方mv", "官方音樂"]):
+            score += 25
+        elif any(k in t for k in ["official video", "official visualizer", "官方完整版"]):
+            score += 20
         elif "official" in t or "官方" in t:
-            score += 90
+            score += 15
 
         if any(k in t for k in ["studio version", "錄音室", "工作室", "原版", "原唱", "original version"]):
-            score += 110
-
-        if "[mv]" in t or "(mv)" in t:
-            score += 45
-
-        if q:
-            tokens = [tok for tok in re.split(r"[\s\-_/]+", q) if len(tok) >= 2]
-            for tok in tokens:
-                if tok in u:
-                    score += 30
-                if tok in t:
-                    score += 20
+            score += 20
 
         if duration > 0:
-            if 90 <= duration <= 360:
-                score += 35
-            elif duration < 60:
-                score -= 160
-            elif duration > 600:
+            if 90 <= duration <= 420:
+                score += 15
+            elif duration < 45:
+                score -= 150
+            elif duration > 900:
                 score -= 200
 
         return score
@@ -695,8 +721,8 @@ class UniversalResolver:
 
         search_target = query
         if not is_url:
-            opts["playlistend"] = 8
-            search_target = f"ytsearch8:{query} official"
+            opts["playlistend"] = 10
+            search_target = f"ytsearch10:{query}"
 
         def _extract():
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -706,7 +732,7 @@ class UniversalResolver:
             info = await loop.run_in_executor(self.executor, _extract)
             if not info or ("entries" in info and not [e for e in info.get("entries", []) if e]):
                 if not is_url:
-                    search_target = f"ytsearch8:{query}"
+                    search_target = f"ytsearch5:{query}"
                     info = await loop.run_in_executor(self.executor, _extract)
                 if not info:
                     return []
@@ -880,7 +906,7 @@ class UniversalResolver:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     if clean_target.startswith("http"):
                         return ydl.extract_info(clean_target, download=False)
-                    return ydl.extract_info(f"ytsearch5:{clean_target} official", download=False)
+                    return ydl.extract_info(f"ytsearch5:{clean_target}", download=False)
 
             info = None
             async with self._extract_semaphore:
