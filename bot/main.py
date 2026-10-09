@@ -24,6 +24,7 @@ logging.getLogger("discord.player").setLevel(logging.WARNING)
 LOCALES_DIR = "/app/bot/locales" if os.path.exists("/app/bot/locales") else os.path.join(os.path.dirname(__file__), "locales")
 COMMANDS_HASH_FILE = "/app/bot/.commands_hash" if os.path.exists("/app/bot") else os.path.join(os.path.dirname(__file__), ".commands_hash")
 SUPPORT_GUILD_ID = int(os.getenv("SUPPORT_GUILD_ID", 1039860460389941338))
+ALERT_CHANNEL_ID = int(os.getenv("ALERT_CHANNEL_ID", 1473748279627092094))
 SUPPORT_INVITE_URL = os.getenv("SUPPORT_INVITE_URL", "https://discord.com/invite/92BB9zGRmS")
 OFFICIAL_WEBSITE_URL = os.getenv("OFFICIAL_WEBSITE_URL", "https://musicbot.bybaoge.com/")
 DONATE_URL = os.getenv("DONATE_URL", "https://donate.bybaoge.com/")
@@ -94,7 +95,13 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
         if not fut.done():
             fut.set_result(False)
         return False
+    except Exception:
+        if not fut.done():
+            fut.set_result(True)
+        return True
     finally:
+        if not fut.done():
+            fut.set_result(True)
         async with mem_lock:
             _IN_FLIGHT_AUTH.pop(user_id, None)
 
@@ -137,7 +144,7 @@ class MusicBot(commands.Bot):
         intents.voice_states = True
         intents.guilds = True
         intents.members = True
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, chunk_guilds_at_startup=False)
         self.resolver = UniversalResolver()
         self.players = {}
         self.status_task = None
@@ -146,6 +153,47 @@ class MusicBot(commands.Bot):
         self.i18n = i18n
         self._last_presence_text = ""
         self._last_presence_time = 0.0
+        self._last_alert_time = 0.0
+        self._setup_resolver_alert(self.resolver)
+
+    def _setup_resolver_alert(self, resolver_instance):
+        resolver_instance.alert_callback = lambda msg: self.loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(self.send_system_alert(msg))
+        )
+
+    async def send_system_alert(self, message: str):
+        now = time.time()
+        if now - getattr(self, "_last_alert_time", 0.0) < 600:
+            return
+        self._last_alert_time = now
+        guild = self.get_guild(SUPPORT_GUILD_ID)
+        if not guild:
+            try:
+                guild = await self.fetch_guild(SUPPORT_GUILD_ID)
+            except Exception:
+                guild = None
+        if not guild:
+            return
+
+        channel = guild.get_channel(ALERT_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await self.fetch_channel(ALERT_CHANNEL_ID)
+            except Exception:
+                channel = None
+
+        if channel and channel.permissions_for(guild.me).send_messages:
+            embed = discord.Embed(
+                title="System Alert",
+                description=message,
+                color=0xE74C3C,
+                timestamp=discord.utils.utcnow()
+            )
+            embed.set_footer(text="BaoGe Music Core Monitor")
+            try:
+                await channel.send(embed=embed)
+            except Exception:
+                pass
 
     async def close(self):
         save_playback_state(self)
@@ -166,6 +214,8 @@ class MusicBot(commands.Bot):
         for d in watch_dirs:
             if os.path.exists(d):
                 for f in os.listdir(d):
+                    if not f.endswith((".py", ".json")):
+                        continue
                     fp = os.path.join(d, f)
                     if os.path.isfile(fp):
                         mtimes[fp] = os.path.getmtime(fp)
@@ -176,6 +226,8 @@ class MusicBot(commands.Bot):
             for d in watch_dirs:
                 if os.path.exists(d):
                     for f in os.listdir(d):
+                        if not f.endswith((".py", ".json")):
+                            continue
                         fp = os.path.join(d, f)
                         if os.path.isfile(fp):
                             current_mtime = os.path.getmtime(fp)
@@ -343,6 +395,8 @@ class MusicBot(commands.Bot):
         if not self.watcher_task:
             self.watcher_task = asyncio.create_task(self.auto_hot_reload_loop())
         asyncio.create_task(restore_playback_state(self))
+        if hasattr(self.resolver, "verify_cookies_task"):
+            asyncio.create_task(self.resolver.verify_cookies_task())
         print("Ready and listening!")
 
     async def on_guild_join(self, guild: discord.Guild):
@@ -361,7 +415,10 @@ class MusicBot(commands.Bot):
     async def on_guild_remove(self, guild: discord.Guild):
         player = self.players.pop(guild.id, None)
         if player:
-            player.stop_ticker()
+            if hasattr(player, "destroy"):
+                player.destroy()
+            else:
+                player.stop_ticker()
             if player.voice_client:
                 try:
                     await player.voice_client.disconnect(force=True)
@@ -426,23 +483,25 @@ async def play(interaction: discord.Interaction, search: str):
     player = bot.get_player(interaction.guild_id)
     player.current_text_channel = interaction.channel
 
-    try:
-        if not player.voice_client or not player.voice_client.is_connected():
-            player.voice_client = await voice_channel.connect(self_deaf=True)
-        elif player.voice_client.channel != voice_channel:
-            await player.voice_client.move_to(voice_channel)
-    except Exception as e:
-        return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=e))
+    async with player.lock:
+        try:
+            if not player.voice_client or not player.voice_client.is_connected():
+                player.voice_client = await voice_channel.connect(self_deaf=True)
+            elif player.voice_client.channel != voice_channel:
+                await player.voice_client.move_to(voice_channel)
+        except Exception as e:
+            return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=e))
 
     tracks = await bot.resolver.resolve_metadata_batch(search)
     if not tracks:
         return await interaction.followup.send(bot.i18n.get("NO_AUDIO_FOUND", loc))
 
-    for track in tracks:
-        track["requester_id"] = interaction.user.id
-        track["requester_name"] = interaction.user.display_name
-        player.queue.append(track)
-    player.ensure_audio_task()
+    async with player.lock:
+        for track in tracks:
+            track["requester_id"] = interaction.user.id
+            track["requester_name"] = interaction.user.display_name
+            player.queue.append(track)
+        player.ensure_audio_task()
 
     if len(tracks) == 1:
         await interaction.followup.send(bot.i18n.get("ADDED_SINGLE", loc, title=tracks[0]['title']))
@@ -526,10 +585,11 @@ async def skip(interaction: discord.Interaction):
 @app_commands.describe(index="歌曲序號 / Track number / 曲番号")
 async def skipto(interaction: discord.Interaction, index: int):
     player = bot.get_player(interaction.guild_id)
-    if not player.queue or index < 1 or index > len(player.queue):
-        return await interaction.response.send_message("Invalid index.", ephemeral=True)
-    player.queue = player.queue[index - 1:]
-    player.stop_current()
+    async with player.lock:
+        if not player.queue or index < 1 or index > len(player.queue):
+            return await interaction.response.send_message("Invalid index.", ephemeral=True)
+        player.queue = player.queue[index - 1:]
+        player.stop_current()
     await interaction.response.send_message(f"#{index}")
 
 @bot.tree.command(name="pause", description="暫停播放 / Pause / 一時停止")
@@ -553,12 +613,13 @@ async def resume(interaction: discord.Interaction):
 @bot.tree.command(name="stop", description="停止播放並清空隊列 / Stop and clear queue / 停止")
 async def stop(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
-    player.queue.clear()
-    player.history.clear()
-    player.autoplay = False
-    player.loop_mode = "off"
-    vc = player.voice_client
-    player.stop_current()
+    async with player.lock:
+        player.queue.clear()
+        player.history.clear()
+        player.autoplay = False
+        player.loop_mode = "off"
+        vc = player.voice_client
+        player.stop_current()
     await interaction.response.send_message("Stopped.")
     if vc:
         await vc.disconnect()
@@ -614,9 +675,10 @@ async def equalizer(interaction: discord.Interaction, preset: app_commands.Choic
 @bot.tree.command(name="shuffle", description="隨機打亂隊列 / Shuffle queue / シャッフル")
 async def shuffle(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
-    if len(player.queue) < 2:
-        return await interaction.response.send_message("Queue too short.", ephemeral=True)
-    random.shuffle(player.queue)
+    async with player.lock:
+        if len(player.queue) < 2:
+            return await interaction.response.send_message("Queue too short.", ephemeral=True)
+        random.shuffle(player.queue)
     await interaction.response.send_message("Shuffled.")
 
 @bot.tree.command(name="loop", description="切換循環模式 / Set loop mode / ループ設定")
@@ -634,23 +696,25 @@ async def loop(interaction: discord.Interaction, mode: app_commands.Choice[str])
 @app_commands.describe(index="歌曲序號 / Track number / 曲番号")
 async def remove(interaction: discord.Interaction, index: int):
     player = bot.get_player(interaction.guild_id)
-    if index < 1 or index > len(player.queue):
-        return await interaction.response.send_message("Invalid index.", ephemeral=True)
-    removed = player.queue.pop(index - 1)
+    async with player.lock:
+        if index < 1 or index > len(player.queue):
+            return await interaction.response.send_message("Invalid index.", ephemeral=True)
+        removed = player.queue.pop(index - 1)
     await interaction.response.send_message(f"Removed: {removed['title']}")
 
 @bot.tree.command(name="clear", description="清空隊列 / Clear queue / キューを消去")
 async def clear(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
-    count = len(player.queue)
-    player.queue.clear()
+    async with player.lock:
+        count = len(player.queue)
+        player.queue.clear()
     await interaction.response.send_message(f"Cleared {count} tracks.")
 
 STATE_FILE = os.path.join("/app/data" if os.path.exists("/app/data") else "data", "state_snapshot.json")
 
 def save_playback_state(bot_instance: commands.Bot):
     state = {}
-    for guild_id, player in bot_instance.players.items():
+    for guild_id, player in list(bot_instance.players.items()):
         if player.voice_client and player.voice_client.channel and (player.current or player.queue):
             elapsed = 0
             if player.voice_client.is_playing() and player.track_start_time > 0:
@@ -734,11 +798,18 @@ async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
         importlib.reload(core.player)
         old_resolver = getattr(bot_instance, "resolver", None)
         bot_instance.resolver = core.resolver.UniversalResolver()
-        if old_resolver and hasattr(old_resolver, "close"):
-            asyncio.create_task(old_resolver.close())
-        for p in bot_instance.players.values():
+        if hasattr(bot_instance, "_setup_resolver_alert"):
+            bot_instance._setup_resolver_alert(bot_instance.resolver)
+        if old_resolver:
+            if hasattr(old_resolver, "graceful_close"):
+                asyncio.create_task(old_resolver.graceful_close(drain_timeout=30.0))
+            elif hasattr(old_resolver, "close"):
+                asyncio.create_task(old_resolver.close())
+        for p in list(bot_instance.players.values()):
             p.__class__ = core.player.GuildPlayer
             p.resolver = bot_instance.resolver
+            if not hasattr(p, "lock") or p.lock is None:
+                p.lock = asyncio.Lock()
             p.ensure_audio_task()
             if p.panel_message:
                 asyncio.create_task(p.update_panel_inplace(force=True))
@@ -829,8 +900,13 @@ if __name__ == "__main__":
     if os.name != "nt":
         try:
             import signal
-            signal.signal(signal.SIGTERM, lambda s, f: save_playback_state(bot))
-            signal.signal(signal.SIGINT, lambda s, f: save_playback_state(bot))
+
+            def _handle_shutdown(s, f):
+                save_playback_state(bot)
+                bot.loop.call_soon_threadsafe(lambda: asyncio.create_task(bot.close()))
+
+            signal.signal(signal.SIGTERM, _handle_shutdown)
+            signal.signal(signal.SIGINT, _handle_shutdown)
             signal.signal(signal.SIGHUP, lambda s, f: bot.loop.call_soon_threadsafe(lambda: asyncio.create_task(perform_hot_reload(bot))))
         except Exception:
             pass

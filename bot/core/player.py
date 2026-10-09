@@ -1,3 +1,4 @@
+import os
 import asyncio
 import random
 import math
@@ -46,9 +47,9 @@ EQ_LABELS = {
 }
 
 DEFAULT_BEFORE_OPTS = (
-    "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 "
+    "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
     "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-    "-reconnect_delay_max 3 -rw_timeout 15000000 -probesize 128k -analyzeduration 0"
+    "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 128k -analyzeduration 0"
 )
 
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
@@ -475,6 +476,7 @@ class GuildPlayer:
         self.bot = bot
         self.guild_id = guild_id
         self.resolver = resolver
+        self.lock = asyncio.Lock()
         self.queue: List[Dict[str, Any]] = []
         self.history: List[Dict[str, Any]] = []
         self.current: Optional[Dict[str, Any]] = None
@@ -495,7 +497,6 @@ class GuildPlayer:
         self.is_manual_interruption = False
         self.auto_disconnect = False
         self.skip_votes: Set[int] = set()
-        self.ticker_task: Optional[asyncio.Task] = None
         self.last_panel_update = 0.0
         try:
             self.loop = asyncio.get_running_loop()
@@ -517,22 +518,15 @@ class GuildPlayer:
         pass
 
     def stop_ticker(self):
-        if self.ticker_task and not self.ticker_task.done():
-            self.ticker_task.cancel()
-        self.ticker_task = None
+        pass
 
-    async def _ticker_loop(self):
-        while not self.bot.is_closed():
-            try:
-                await asyncio.sleep(25 + random.uniform(0, 10))
-                if not self.voice_client or not self.current or not self.panel_message:
-                    continue
-                if self.voice_client.is_playing():
-                    await self.update_panel_inplace()
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                pass
+    def destroy(self):
+        self.queue.clear()
+        self.history.clear()
+        self.stop_current()
+        if self.audio_task and not self.audio_task.done():
+            self.audio_task.cancel()
+        self.audio_task = None
 
     def stop_current(self):
         self.is_manual_interruption = True
@@ -548,12 +542,18 @@ class GuildPlayer:
             if self.voice_client.is_playing() or self.voice_client.is_paused():
                 self.voice_client.stop()
 
-            base_opts = "-loglevel error -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
+            base_opts = "-loglevel fatal -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
             eq_filter = EQ_PRESETS.get(self.current_eq, "")
             if eq_filter:
                 base_opts += f' -af "{eq_filter}"'
 
             clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", DEFAULT_BEFORE_OPTS)).strip()
+            clean_before = re.sub(r"-rw_timeout\s+\d+|-timeout\s+\d+", "", clean_before)
+            if "-reconnect_streamed 1" not in clean_before:
+                clean_before = f"{clean_before} -reconnect_streamed 1"
+            if "-reconnect_at_eof 1" not in clean_before:
+                clean_before = f"{clean_before} -reconnect_at_eof 1"
+            clean_before = re.sub(r"\s+", " ", clean_before).strip()
             before_opts = f"{clean_before} -ss {seconds}"
 
             raw_source = SafeFFmpegPCMAudio(
@@ -606,12 +606,15 @@ class GuildPlayer:
                 await interaction.response.send_message(msgs.get(loc, "Not connected."), ephemeral=True)
             return
 
-        prev_item = self.history.pop()
-        if self.current_meta:
-            self.queue.insert(0, self.current_meta)
-        self.queue.insert(0, prev_item)
+        async with self.lock:
+            if not self.history:
+                return
+            prev_item = self.history.pop()
+            if self.current_meta:
+                self.queue.insert(0, self.current_meta)
+            self.queue.insert(0, prev_item)
+            self.stop_current()
 
-        self.stop_current()
         if interaction:
             msgs = {
                 "zh_TW": f"正在切換至上一首：{prev_item['title']}",
@@ -633,9 +636,22 @@ class GuildPlayer:
             return await interaction.response.send_message(msgs.get(loc, "No music playing."), ephemeral=True)
 
         user = interaction.user
-        is_owner = await self.bot.is_owner(user)
-        is_admin = user.guild_permissions.manage_guild or user.guild_permissions.administrator
-        is_requester = self.current_meta and user.id == self.current_meta.get("requester_id")
+        is_owner = False
+        try:
+            owner_id = getattr(self.bot, "owner_id", None)
+            owner_ids = getattr(self.bot, "owner_ids", None)
+            if owner_id is not None:
+                is_owner = (user.id == owner_id)
+            elif owner_ids:
+                is_owner = (user.id in owner_ids)
+            else:
+                is_owner = await self.bot.is_owner(user)
+        except Exception:
+            is_owner = False
+
+        user_perms = getattr(user, "guild_permissions", None)
+        is_admin = bool(user_perms and (user_perms.manage_guild or user_perms.administrator))
+        is_requester = bool(self.current_meta and user.id == self.current_meta.get("requester_id"))
 
         if is_owner or is_admin or is_requester:
             self.skip_votes.clear()
@@ -729,41 +745,48 @@ class GuildPlayer:
                     else:
                         idle_counter = 0
 
-                if not self.queue and self.loop_mode != "single":
-                    if self.loop_mode == "queue" and self.current_meta:
-                        self.queue.append(self.current_meta)
-                    if not self.queue and self.autoplay:
-                        seed_info = self.current or self.current_meta or self.last_played_meta or (self.history[-1] if self.history else None)
-                        if seed_info:
-                            hist_ids = [str(h.get("id")) for h in self.history if h.get("id")]
-                            rec = await self.resolver.get_autoplay_recommendation(seed_info, hist_ids)
-                            if rec:
-                                rec["requester_id"] = self.bot.user.id
-                                ap_names = {
-                                    "zh_TW": "自動推薦續播",
-                                    "zh_CN": "自动推荐续播",
-                                    "en_US": "Autoplay",
-                                    "ja_JP": "自動連續再生"
-                                }
-                                rec["requester_name"] = ap_names.get(self.locale, "Autoplay")
-                                self.queue.append(rec)
+                seed_info = None
+                async with self.lock:
+                    if not self.queue and self.loop_mode != "single":
+                        if self.loop_mode == "queue" and self.current_meta:
+                            self.queue.append(self.current_meta)
+                        if not self.queue and self.autoplay:
+                            seed_info = self.current or self.current_meta or self.last_played_meta or (self.history[-1] if self.history else None)
+
+                if seed_info and not self.queue:
+                    hist_ids = [str(h.get("id")) for h in self.history if h.get("id")]
+                    rec = await self.resolver.get_autoplay_recommendation(seed_info, hist_ids)
+                    if rec:
+                        rec["requester_id"] = self.bot.user.id
+                        ap_names = {
+                            "zh_TW": "自動推薦續播",
+                            "zh_CN": "自动推荐续播",
+                            "en_US": "Autoplay",
+                            "ja_JP": "自動連續再生"
+                        }
+                        rec["requester_name"] = ap_names.get(self.locale, "Autoplay")
+                        async with self.lock:
+                            self.queue.append(rec)
 
                 next_item = None
-                if self.loop_mode == "single" and self.current_meta:
-                    next_item = self.current_meta
-                elif self.queue:
-                    next_item = self.queue.pop(0)
-                    if self.current_meta and self.loop_mode != "single" and not next_item.get("_is_resumed_segment"):
-                        self.history.append(self.current_meta)
-                        if len(self.history) > 50:
-                            self.history.pop(0)
-                    if self.loop_mode == "queue" and self.current_meta:
-                        self.queue.append(self.current_meta)
+                async with self.lock:
+                    if self.loop_mode == "single" and self.current_meta:
+                        next_item = self.current_meta
+                    elif self.queue:
+                        next_item = self.queue.pop(0)
+                        if self.current_meta and self.loop_mode != "single" and not next_item.get("_is_resumed_segment"):
+                            self.history.append(self.current_meta)
+                            if len(self.history) > 50:
+                                self.history.pop(0)
+                        if self.loop_mode == "queue" and self.current_meta:
+                            self.queue.append(self.current_meta)
+
+                    if not next_item:
+                        self.current = None
+                        self.current_meta = None
+                        self.queue_event.clear()
 
                 if not next_item:
-                    self.current = None
-                    self.current_meta = None
-                    self.queue_event.clear()
                     try:
                         await asyncio.wait_for(self.queue_event.wait(), timeout=2.0)
                     except (asyncio.TimeoutError, TimeoutError):
@@ -771,11 +794,21 @@ class GuildPlayer:
                     continue
 
                 track_stream = await self.resolver.get_live_stream(next_item["search_query"])
+                if track_stream and track_stream.get("stream_url", "").startswith("https://b23.tv"):
+                    track_stream = None
+
                 if not track_stream or not track_stream.get("stream_url"):
-                    track_stream = await self.resolver.get_live_stream(next_item.get("title", next_item["search_query"]))
+                    is_third_party = any(
+                        domain in next_item.get("search_query", "") or domain in next_item.get("webpage_url", "")
+                        for domain in ("bilibili.com", "b23.tv", "streetvoice.com", "kkbox.com", "spotify.com", "apple.com")
+                    )
+                    if not is_third_party:
+                        track_stream = await self.resolver.get_live_stream(next_item.get("title", next_item["search_query"]))
                     if not track_stream or not track_stream.get("stream_url"):
                         self.current = None
                         self.current_meta = None
+                        if next_item.get("id"):
+                            self.history.append({"id": next_item["id"]})
                         continue
 
                 self.current = track_stream
@@ -797,19 +830,31 @@ class GuildPlayer:
                 if next_item.get("webpage_url") and not self.current.get("webpage_url", "").startswith("http"):
                     self.current["webpage_url"] = next_item["webpage_url"]
 
-                base_opts = "-loglevel error -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
+                base_opts = "-loglevel fatal -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
                 eq_filter = EQ_PRESETS.get(self.current_eq, "")
                 if eq_filter:
                     base_opts += f' -af "{eq_filter}"'
 
                 self.is_manual_interruption = False
+                play_target = self.current["stream_url"]
                 before_opts = self.current.get("before_options", DEFAULT_BEFORE_OPTS)
                 start_off = next_item.get("start_offset", 0.0)
+
+                if not self.current.get("is_live", False) and hasattr(self.resolver, "preload_track_audio"):
+                    cached_file = await self.resolver.preload_track_audio(
+                        self.current["stream_url"],
+                        self.current.get("http_headers", {}),
+                        self.current.get("id") or next_item.get("id") or str(abs(hash(self.current["stream_url"])))
+                    )
+                    if cached_file and os.path.exists(cached_file) and os.path.getsize(cached_file) > 10240:
+                        play_target = cached_file
+                        before_opts = "-loglevel fatal -nostats"
+
                 if start_off > 0.0 and "-ss" not in before_opts:
                     before_opts = f"{before_opts} -ss {start_off}"
 
                 raw_source = SafeFFmpegPCMAudio(
-                    self.current["stream_url"],
+                    play_target,
                     before_options=before_opts,
                     options=base_opts
                 )
@@ -820,6 +865,8 @@ class GuildPlayer:
                     self.voice_client.play(audio_source, after=self._after_playback)
                     await self.post_new_panel()
                     self.start_ticker()
+                    if self.queue and hasattr(self.resolver, "preload_track_audio"):
+                        asyncio.create_task(self._preload_upcoming_track(self.queue[0]))
                     await self.play_next_event.wait()
                     elapsed = time.time() - self.track_start_time
                     exp_dur = self.current.get("duration", 0)
@@ -828,6 +875,7 @@ class GuildPlayer:
                         and not self.is_restarting_stream
                         and not self.current.get("is_live", False)
                         and exp_dur > 20
+                        and elapsed >= 3.0
                         and elapsed < (exp_dur - 8)
                         and next_item.get("_resume_retries", 0) < 2
                     ):
@@ -836,10 +884,14 @@ class GuildPlayer:
                         next_item["start_offset"] = max(0, int(elapsed + next_item.get("start_offset", 0.0)))
                         if hasattr(self.resolver, "invalidate_stream_cache"):
                             await self.resolver.invalidate_stream_cache(next_item["search_query"])
-                        self.queue.insert(0, next_item)
+                        async with self.lock:
+                            self.queue.insert(0, next_item)
+                        await asyncio.sleep(1.0)
                         continue
 
                     if elapsed < 3.0 and not self.is_restarting_stream and not self.is_manual_interruption:
+                        if next_item.get("id"):
+                            self.history.append({"id": next_item["id"]})
                         if hasattr(self.resolver, "invalidate_stream_cache"):
                             await self.resolver.invalidate_stream_cache(next_item["search_query"])
                 else:
@@ -848,6 +900,24 @@ class GuildPlayer:
             except Exception as e:
                 print(f"Audio playback error: {e}")
                 await asyncio.sleep(2)
+
+    async def _preload_upcoming_track(self, next_track: Dict[str, Any]):
+        try:
+            if not next_track or not hasattr(self.resolver, "preload_track_audio"):
+                return
+            sq = next_track.get("search_query", "")
+            if not sq:
+                return
+            stream_info = await self.resolver.get_live_stream(sq)
+            if stream_info and stream_info.get("stream_url"):
+                t_id = stream_info.get("id") or next_track.get("id") or str(abs(hash(stream_info["stream_url"])))
+                await self.resolver.preload_track_audio(
+                    stream_info["stream_url"],
+                    stream_info.get("http_headers", {}),
+                    t_id
+                )
+        except Exception:
+            pass
 
     def _build_embed(self) -> discord.Embed:
         loc = self.locale
@@ -910,5 +980,10 @@ class GuildPlayer:
         view = PlayerControls(self)
         try:
             await self.panel_message.edit(embed=embed, view=view)
+        except discord.NotFound:
+            self.panel_message = None
+        except discord.HTTPException as e:
+            if getattr(e, "status", None) == 404:
+                self.panel_message = None
         except Exception:
             pass

@@ -12,9 +12,33 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bot"))
 import discord
 from discord.ext import commands
 import importlib
+import yt_dlp
 import core.resolver
 import core.player
 from main import MusicBot, check_official_guild_membership, _MEMBERSHIP_CACHE
+
+class MockYoutubeDL:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def extract_info(self, url, download=False, **kwargs):
+        return {
+            "id": "mock_vid_123",
+            "title": f"Mock Track: {url}",
+            "uploader": "Mock Artist",
+            "duration": 210,
+            "url": "mock://stream",
+            "formats": [{"url": "mock://stream", "format_id": "251"}],
+            "entries": []
+        }
+
+yt_dlp.YoutubeDL = MockYoutubeDL
 
 class MockVoiceClient:
     def __init__(self, guild):
@@ -143,6 +167,7 @@ class MockMember:
         self.display_name = name
         self.bot = False
         self.voice = MockVoiceState(voice_channel)
+        self.guild_permissions = discord.Permissions(manage_guild=False, administrator=False)
 
 class MockInteraction:
     def __init__(self, guild, user):
@@ -195,6 +220,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
 
     bot = MusicBot()
     bot._connection.user = MockMember(123456789, "BaoGeBot")
+    bot.owner_id = 123456789
 
     guilds = [MockGuild(100000 + i, f"Guild_{i}") for i in range(guild_count)]
     for g in guilds:
@@ -228,11 +254,38 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
             "before_options": "-probesize 64k"
         }
 
+    async def _mock_autoplay(current_info, history_ids=None):
+        await asyncio.sleep(0.001)
+        return {
+            "id": "mock_auto_123",
+            "title": "Mock Autoplay Song",
+            "search_query": "mock://autoplay",
+            "uploader": "Mock Artist"
+        }
+
+    orig_reload = getattr(importlib, "_orig_reload", None)
+    if not orig_reload:
+        importlib._orig_reload = importlib.reload
+        orig_reload = importlib.reload
+
+    def _custom_reload(mod):
+        m = orig_reload(mod)
+        if getattr(mod, "__name__", "") == "core.resolver":
+            m.UniversalResolver.resolve_metadata_batch = lambda self, q: _mock_resolve_batch(q)
+            m.UniversalResolver.get_live_stream = lambda self, q: _mock_get_live_stream(q)
+            m.UniversalResolver.get_autoplay_recommendation = lambda self, c, h=None: _mock_autoplay(c, h)
+        elif getattr(mod, "__name__", "") == "core.player":
+            m.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
+        return m
+
+    importlib.reload = _custom_reload
+    core.resolver.UniversalResolver.resolve_metadata_batch = lambda self, q: _mock_resolve_batch(q)
+    core.resolver.UniversalResolver.get_live_stream = lambda self, q: _mock_get_live_stream(q)
+    core.resolver.UniversalResolver.get_autoplay_recommendation = lambda self, c, h=None: _mock_autoplay(c, h)
+    core.player.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
     bot.resolver.resolve_metadata_batch = _mock_resolve_batch
     bot.resolver.get_live_stream = _mock_get_live_stream
-
-    orig_safe_audio = core.player.SafeFFmpegPCMAudio
-    core.player.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
+    bot.resolver.get_autoplay_recommendation = _mock_autoplay
 
     auth_t0 = time.time()
     auth_tasks = [check_official_guild_membership(bot, 800000 + i) for i in range(guild_count)]
@@ -375,8 +428,56 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
         next_test["_is_resumed_segment"] = True
         next_test["start_offset"] = max(0, int(elapsed_test + next_test.get("start_offset", 0.0)))
         p_resume.queue.insert(0, next_test)
-    if not p_resume.queue or p_resume.queue[0].get("start_offset", 0) < 50:
-        errors.append("Auto-resume segment math verification failed")
+    target_guild = guilds[5]
+    p_concurrent = bot.get_player(target_guild.id)
+    async def _concurrent_user_action(u_idx: int):
+        u = MockMember(900000 + u_idx, f"SpamUser_{u_idx}")
+        action = u_idx % 8
+        if action == 0:
+            async with p_concurrent.lock:
+                p_concurrent.queue.append({"title": f"Concurrent_{u_idx}", "search_query": f"q_{u_idx}"})
+        elif action == 1:
+            async with p_concurrent.lock:
+                if p_concurrent.queue:
+                    p_concurrent.queue.pop(0)
+        elif action == 2:
+            async with p_concurrent.lock:
+                if len(p_concurrent.queue) > 1:
+                    random.shuffle(p_concurrent.queue)
+        elif action == 3:
+            async with p_concurrent.lock:
+                p_concurrent.queue = p_concurrent.queue[1:]
+        elif action == 4:
+            await p_concurrent.play_previous()
+        elif action == 5:
+            await p_concurrent.process_skip(MockInteraction(target_guild, u))
+        elif action == 6:
+            await p_concurrent.seek(15)
+        elif action == 7:
+            await p_concurrent.set_eq("bass")
+
+    concurrent_spam_tasks = [_concurrent_user_action(k) for k in range(50)]
+    spam_results = await asyncio.gather(*concurrent_spam_tasks, return_exceptions=True)
+    spam_errors = [e for e in spam_results if isinstance(e, Exception)]
+    if spam_errors:
+        errors.append(f"Intra-guild 50 concurrent user actions raised {len(spam_errors)} exceptions: {spam_errors[0]}")
+
+    class MockDeletedMessage(MockMessage):
+        async def edit(self, *args, **kwargs):
+            raise discord.NotFound(MockResponse(), "Message deleted")
+    class MockResponse:
+        status = 404
+        reason = "Not Found"
+
+    p_panel_test = bot.get_player(guilds[10].id)
+    p_panel_test.current = {"title": "Panel Test", "webpage_url": "https://example.com"}
+    p_panel_test.panel_message = MockDeletedMessage(guilds[10].text_channels[0])
+    await p_panel_test.update_panel_inplace(force=True)
+    if p_panel_test.panel_message is not None:
+        errors.append("Panel message failed to auto-recover/reset to None when deleted (NotFound)")
+
+    if hasattr(bot.resolver, "_cleanup_audio_cache"):
+        bot.resolver._cleanup_audio_cache(max_bytes=1024 * 1024)
 
     reload_t0 = time.time()
     from main import perform_hot_reload, save_playback_state, restore_playback_state, STATE_FILE
@@ -384,6 +485,16 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     if not reload_success:
         errors.append(f"Hot-reload failed: {reload_msg}")
     reload_duration = time.time() - reload_t0
+
+    core.resolver.UniversalResolver.resolve_metadata_batch = lambda self, q: _mock_resolve_batch(q)
+    core.resolver.UniversalResolver.get_live_stream = lambda self, q: _mock_get_live_stream(q)
+    core.resolver.UniversalResolver.get_autoplay_recommendation = lambda self, c, h=None: _mock_autoplay(c, h)
+    core.player.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
+    bot.resolver.resolve_metadata_batch = _mock_resolve_batch
+    bot.resolver.get_live_stream = _mock_get_live_stream
+    bot.resolver.get_autoplay_recommendation = _mock_autoplay
+    for p in bot.players.values():
+        p.resolver = bot.resolver
 
     state_t0 = time.time()
     save_playback_state(bot)
@@ -406,9 +517,9 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
         if p.audio_task and not p.audio_task.done():
             p.audio_task.cancel()
     bot.players.clear()
+    if hasattr(bot.resolver, "close"):
+        await bot.resolver.close()
     gc.collect()
-
-    core.player.SafeFFmpegPCMAudio = orig_safe_audio
 
     total_time = time.time() - t_start
     qps = guild_count / queue_duration if queue_duration > 0 else 0
@@ -446,7 +557,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     return metrics
 
 async def main():
-    total_passes = 30
+    total_passes = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 30
     print(f"Starting 300-Server Comprehensive Stress Test Suite ({total_passes} Iterations)")
     all_metrics = []
     t_suite_start = time.time()

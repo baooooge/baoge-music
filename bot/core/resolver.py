@@ -12,6 +12,22 @@ from bs4 import BeautifulSoup
 import yt_dlp
 
 class UniversalResolver:
+    @staticmethod
+    def _is_valid_cookie_file(path: Optional[str]) -> bool:
+        if not path or not os.path.isfile(path) or os.path.getsize(path) < 10:
+            return False
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("#") or not line:
+                        continue
+                    if len(line.split("\t")) == 7:
+                        return True
+            return False
+        except Exception:
+            return False
+
     def __init__(self):
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -19,22 +35,27 @@ class UniversalResolver:
             "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
         }
         
-        cookie_path = "/app/data/cookies.txt" if os.path.exists("/app/data/cookies.txt") else (
-            "cookies.txt" if os.path.exists("cookies.txt") else None
-        )
+        possible_cookie_paths = [
+            "/app/data/cookies.txt",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "cookies.txt"),
+            os.path.join(os.getcwd(), "data", "cookies.txt")
+        ]
+        cookie_path = next((p for p in possible_cookie_paths if self._is_valid_cookie_file(p)), None)
+        self.cookie_path = cookie_path
 
         youtube_extractor_args = {
             "youtube": {
-                "player_client": ["web_creator", "mweb", "android"]
+                "player_client": ["android"]
             }
         }
 
         self.ydl_opts_meta = {
             "format": "bestaudio/best",
+            "extract_flat": "in_playlist",
+            "skip_download": True,
             "quiet": True,
             "no_warnings": True,
             "default_search": "ytsearch",
-            "extract_flat": "in_playlist",
             "playlistend": 100,
             "extractor_retries": 3,
             "socket_timeout": 10,
@@ -47,6 +68,7 @@ class UniversalResolver:
         self.ydl_opts_stream = {
             "format": "bestaudio/best",
             "noplaylist": True,
+            "skip_download": True,
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
@@ -74,6 +96,7 @@ class UniversalResolver:
         self.kkbox_cookie = os.getenv("KKBOX_COOKIE", "")
         self._kkbox_token = None
         self._kkbox_token_expiry = 0
+        self.alert_callback = None
 
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -93,7 +116,17 @@ class UniversalResolver:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
+            await asyncio.sleep(0.01)
         self.executor.shutdown(wait=False)
+
+    async def graceful_close(self, drain_timeout: float = 30.0):
+        t0 = time.time()
+        while time.time() - t0 < drain_timeout:
+            async with self._flight_lock:
+                if not self._in_flight_searches and not self._in_flight_streams:
+                    break
+            await asyncio.sleep(0.5)
+        await self.close()
 
     async def invalidate_stream_cache(self, target: str):
         async with self._cache_lock:
@@ -490,17 +523,29 @@ class UniversalResolver:
 
     async def _resolve_bilibili(self, url: str) -> List[Dict[str, Any]]:
         target_url = url.strip()
+        url_match = re.search(r"https?://[^\s]+", target_url)
+        if url_match:
+            target_url = url_match.group(0)
+
         if "b23.tv" in target_url:
             session = await self.get_session()
             try:
-                async with session.get(target_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                }
+                async with session.get(target_url, allow_redirects=True, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        body_sample = await resp.text()
+                        if '"code":-404' in body_sample or '"code": -404' in body_sample:
+                            return []
                     target_url = str(resp.url)
             except Exception:
                 pass
 
         bv_match = re.search(r"(BV[0-9A-Za-z]{10})", target_url)
         if not bv_match:
-            return await self._resolve_raw_search(target_url)
+            return []
 
         bvid = bv_match.group(1)
         video_page_url = f"https://www.bilibili.com/video/{bvid}/"
@@ -525,67 +570,119 @@ class UniversalResolver:
         except Exception:
             pass
 
-        if not html:
-            return await self._resolve_raw_search(video_page_url)
+        if html:
+            m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", html)
+            if m:
+                try:
+                    state = json.loads(m.group(1))
+                    video_data = state.get("videoData", {})
+                    results = []
 
-        m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", html)
-        if not m:
-            return await self._resolve_raw_search(video_page_url)
+                    ugc_season = video_data.get("ugc_season", {})
+                    if ugc_season and "sections" in ugc_season:
+                        all_eps = []
+                        for sec in ugc_season.get("sections", []):
+                            for ep in sec.get("episodes", []):
+                                ep_bvid = ep.get("bvid") or bvid
+                                ep_title = ep.get("title") or video_data.get("title") or "Bilibili Track"
+                                ep_url = f"https://www.bilibili.com/video/{ep_bvid}/"
+                                all_eps.append({
+                                    "title": ep_title,
+                                    "search_query": ep_url,
+                                    "id": ep_bvid,
+                                    "duration": int(ep.get("arc", {}).get("duration") or 0),
+                                    "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
+                                    "thumbnail": ep.get("arc", {}).get("pic") or video_data.get("pic") or "",
+                                    "webpage_url": ep_url
+                                })
+                        if all_eps:
+                            target_idx = next((i for i, item in enumerate(all_eps) if item["id"] == bvid), 0)
+                            ordered_eps = all_eps[target_idx:] + all_eps[:target_idx]
+                            return ordered_eps[:100]
 
-        try:
-            state = json.loads(m.group(1))
-            video_data = state.get("videoData", {})
-            results = []
+                    pages = video_data.get("pages", [])
+                    if len(pages) > 1:
+                        all_pages = []
+                        for p in pages:
+                            p_num = p.get("page", 1)
+                            p_title = p.get("part") or f"{video_data.get('title')} P{p_num}"
+                            p_url = f"https://www.bilibili.com/video/{bvid}/?p={p_num}"
+                            all_pages.append({
+                                "title": p_title,
+                                "search_query": p_url,
+                                "id": f"{bvid}_p{p_num}",
+                                "duration": int(p.get("duration") or 0),
+                                "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
+                                "thumbnail": video_data.get("pic") or "",
+                                "webpage_url": p_url,
+                                "_p_num": p_num
+                            })
+                        if all_pages:
+                            p_match = re.search(r"[?&]p=(\d+)", target_url)
+                            target_p = int(p_match.group(1)) if p_match else 1
+                            target_idx = next((i for i, item in enumerate(all_pages) if item.get("_p_num") == target_p), 0)
+                            ordered_pages = all_pages[target_idx:] + all_pages[:target_idx]
+                            for item in ordered_pages:
+                                item.pop("_p_num", None)
+                            return ordered_pages[:100]
 
-            ugc_season = video_data.get("ugc_season", {})
-            if ugc_season and "sections" in ugc_season:
-                for sec in ugc_season.get("sections", []):
-                    for ep in sec.get("episodes", []):
-                        ep_bvid = ep.get("bvid") or bvid
-                        ep_title = ep.get("title") or video_data.get("title") or "Bilibili Track"
-                        ep_url = f"https://www.bilibili.com/video/{ep_bvid}/"
-                        results.append({
-                            "title": ep_title,
-                            "search_query": ep_url,
-                            "id": ep_bvid,
-                            "duration": int(ep.get("arc", {}).get("duration") or 0),
-                            "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
-                            "thumbnail": ep.get("arc", {}).get("pic") or video_data.get("pic") or "",
-                            "webpage_url": ep_url
-                        })
-                if results:
-                    return results[:100]
-
-            pages = video_data.get("pages", [])
-            if len(pages) > 1:
-                for p in pages:
-                    p_num = p.get("page", 1)
-                    p_title = p.get("part") or f"{video_data.get('title')} P{p_num}"
-                    p_url = f"https://www.bilibili.com/video/{bvid}/?p={p_num}"
-                    results.append({
-                        "title": p_title,
-                        "search_query": p_url,
-                        "id": f"{bvid}_p{p_num}",
-                        "duration": int(p.get("duration") or 0),
+                    single_title = video_data.get("title") or "Bilibili Track"
+                    return [{
+                        "title": single_title,
+                        "search_query": video_page_url,
+                        "id": bvid,
+                        "duration": int(video_data.get("duration") or 0),
                         "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
                         "thumbnail": video_data.get("pic") or "",
-                        "webpage_url": p_url
-                    })
-                if results:
-                    return results[:100]
+                        "webpage_url": video_page_url
+                    }]
+                except Exception:
+                    pass
 
-            single_title = video_data.get("title") or "Bilibili Track"
-            return [{
-                "title": single_title,
-                "search_query": video_page_url,
-                "id": bvid,
-                "duration": int(video_data.get("duration") or 0),
-                "uploader": video_data.get("owner", {}).get("name", "Bilibili"),
-                "thumbnail": video_data.get("pic") or "",
-                "webpage_url": video_page_url
-            }]
+            try:
+                soup = BeautifulSoup(html, "html.parser")
+                og_title = soup.find("meta", property="og:title")
+                if og_title and og_title.get("content"):
+                    t_str = og_title["content"].split("_哔哩哔哩")[0].strip()
+                    og_pic = soup.find("meta", property="og:image")
+                    pic_url = og_pic.get("content", "") if og_pic else ""
+                    author_meta = soup.find("meta", attrs={"name": "author"})
+                    u_name = author_meta.get("content", "Bilibili") if author_meta else "Bilibili"
+                    return [{
+                        "title": t_str,
+                        "search_query": video_page_url,
+                        "id": bvid,
+                        "duration": 0,
+                        "uploader": u_name,
+                        "thumbnail": pic_url,
+                        "webpage_url": video_page_url
+                    }]
+            except Exception:
+                pass
+
+        loop = asyncio.get_running_loop()
+        opts = dict(self.ydl_opts_meta)
+        opts["http_headers"] = {
+            **self.headers,
+            "Referer": "https://www.bilibili.com/",
+            "Origin": "https://www.bilibili.com"
+        }
+        try:
+            info = await loop.run_in_executor(self.executor, lambda: yt_dlp.YoutubeDL(opts).extract_info(video_page_url, download=False))
+            if info:
+                return [{
+                    "title": info.get("title", "Bilibili Track"),
+                    "search_query": video_page_url,
+                    "id": bvid,
+                    "duration": int(info.get("duration") or 0),
+                    "uploader": info.get("uploader", "Bilibili"),
+                    "thumbnail": info.get("thumbnail") or "",
+                    "webpage_url": video_page_url
+                }]
         except Exception:
-            return await self._resolve_raw_search(video_page_url)
+            pass
+
+        return []
 
     @staticmethod
     def _clean_title_for_comparison(title: str) -> str:
@@ -600,123 +697,38 @@ class UniversalResolver:
         u = uploader.lower()
         q = query.lower().strip() if query else ""
 
-        negative_patterns = [
-            ("remix", 300),
-            ("re-mix", 300),
-            ("混音", 300),
-            ("重混", 300),
-            ("dj", 250),
-            ("cover", 250),
-            ("翻唱", 250),
-            ("fancam", 250),
-            ("reaction", 250),
-            ("反應", 250),
-            ("sped up", 250),
-            ("speed up", 250),
-            ("slowed", 250),
-            ("nightcore", 250),
-            ("bass boosted", 250),
-            ("8d audio", 250),
-            ("1 hour", 250),
-            ("10 hour", 250),
-            ("1hr", 250),
-            ("10hr", 250),
-            ("loop", 250),
-            ("karaoke", 180),
-            ("instrumental", 180),
-            ("inst", 150),
-            ("伴奏", 180),
-            ("純音樂", 180),
-            ("live", 120),
-            ("concert", 120),
-            ("現場", 120),
-            ("演唱會", 120)
-        ]
+        hard_penalties = ["fancam", "直拍", "側錄", "追星", "現場", "live", "concert", "演唱會", "cover", "翻唱", "remix"]
+        for p in hard_penalties:
+            if p in (t + " " + u) and p not in q:
+                score -= 1000
 
-        for token, penalty in negative_patterns:
-            if token in t and token not in q:
-                score -= penalty
+        if " - topic" in u or u.endswith(" topic"):
+            score += 1500
+        elif any(k in u for k in ["official", "官方", "records", "music", "entertainment"]):
+            score += 500
 
-        clean_q = self._clean_title_for_comparison(q) if q else ""
+        if any(k in t for k in ["official audio", "官方音頻", "audio"]):
+            score += 400
+        elif any(k in t for k in ["official music video", "official mv", "官方mv"]):
+            score += 300
+
+        clean_q = self._clean_title_for_comparison(q)
         clean_t = self._clean_title_for_comparison(title)
 
-        q_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_q) if len(tok) >= 1]
-        t_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_t) if len(tok) >= 1]
-
-        is_official_channel = (
-            (" - topic" in u or u.endswith(" topic") or "topic" in u) or
-            ("vevo" in u) or
-            any(k in u for k in ["official", "官方", "records", "music", "entertainment"])
-        )
+        q_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_q) if tok]
         if q_tokens:
-            for tok in q_tokens:
-                if len(tok) >= 2 and tok in u:
-                    is_official_channel = True
-                    score += 80
+            matches = sum(1 for tok in q_tokens if tok in clean_t or tok in u)
+            match_ratio = matches / len(q_tokens)
+            score += int(match_ratio * 1200)
+            if match_ratio < 0.3:
+                score -= 2500
+            elif match_ratio < 0.5:
+                score -= 800
 
-        has_lyric_term = any(k in t for k in ["lyric", "lyrics", "歌詞"])
-        if has_lyric_term and not is_official_channel and "lyric" not in q and "歌詞" not in q:
-            score -= 260
-
-        if q:
-            matched_tokens = 0
-            if q_tokens:
-                for tok in q_tokens:
-                    if tok in clean_t or tok in u:
-                        matched_tokens += 1
-                all_tokens_matched = (matched_tokens == len(q_tokens))
-            else:
-                all_tokens_matched = False
-
-            is_direct_match = (clean_q and (clean_q in clean_t or clean_t in clean_q)) or all_tokens_matched
-            if is_direct_match:
-                score += 500
-                if clean_q == clean_t or (q_tokens and t_tokens and set(q_tokens) == set(t_tokens)):
-                    score += 200
-
-            if q_tokens:
-                ratio = matched_tokens / len(q_tokens)
-                score += int(ratio * 300)
-                if ratio < 0.5:
-                    score -= 400
-            else:
-                if q in t:
-                    score += 300
-                else:
-                    score -= 300
-
-            if clean_q and clean_t:
-                sim = difflib.SequenceMatcher(None, clean_q, clean_t).ratio()
-                score += int(sim * 150)
-                if sim < 0.2 and matched_tokens == 0:
-                    score -= 500
-
-        if " - topic" in u or u.endswith(" topic") or "topic" in u:
-            score += 80
-        elif "vevo" in u:
-            score += 60
-
-        if any(k in t for k in ["official audio", "官方音頻"]):
-            score += 80
-        elif any(k in t for k in ["official lyric video", "official lyrics video", "官方歌詞"]):
-            score += 70
-        elif any(k in t for k in ["official music video", "official mv", "官方mv", "官方音樂"]):
-            score += 75
-        elif any(k in t for k in ["official video", "official visualizer", "官方完整版"]):
-            score += 60
-        elif "official" in t or "官方" in t:
+        if 90 <= duration <= 360:
             score += 50
-
-        if any(k in t for k in ["studio version", "錄音室", "工作室", "原版", "原唱", "original version"]):
-            score += 50
-
-        if duration > 0:
-            if 90 <= duration <= 420:
-                score += 15
-            elif duration < 45:
-                score -= 150
-            elif duration > 900:
-                score -= 200
+        elif duration > 600 or duration < 50:
+            score -= 300
 
         return score
 
@@ -733,30 +745,26 @@ class UniversalResolver:
                 "Origin": "https://www.bilibili.com"
             }
 
-        search_target = query
-        if not is_url:
-            opts["playlistend"] = 10
-            search_target = f"ytsearch10:{query}"
-
-        def _extract():
+        def _extract(target_query):
             with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(search_target, download=False)
+                return ydl.extract_info(target_query, download=False)
 
         try:
-            info = await loop.run_in_executor(self.executor, _extract)
-            if not info or ("entries" in info and not [e for e in info.get("entries", []) if e]):
-                if not is_url:
-                    search_target = f"ytsearch5:{query}"
-                    info = await loop.run_in_executor(self.executor, _extract)
-                if not info:
-                    return []
-
-            entries = []
-            if "entries" in info:
-                entries = [e for e in info["entries"] if e]
+            if is_url:
+                info = await loop.run_in_executor(self.executor, lambda: _extract(query))
             else:
-                entries = [info]
+                opts["playlistend"] = 5
+                search_target = f"ytmsearch5:{query}"
+                info = await loop.run_in_executor(self.executor, lambda: _extract(search_target))
 
+                if not info or not info.get("entries"):
+                    search_target = f"ytsearch5:{query}"
+                    info = await loop.run_in_executor(self.executor, lambda: _extract(search_target))
+
+            if not info:
+                return []
+
+            entries = [e for e in info.get("entries", [info]) if e]
             if not entries:
                 return []
 
@@ -784,6 +792,27 @@ class UniversalResolver:
                     "webpage_url": final_target
                 }]
 
+            if is_url and len(entries) > 1:
+                target_idx = None
+                v_m = re.search(r"[?&]v=([0-9A-Za-z_-]{11})", query)
+                if v_m:
+                    target_vid = v_m.group(1)
+                    target_idx = next((i for i, item in enumerate(entries) if item.get("id") == target_vid), None)
+                if target_idx is None:
+                    idx_m = re.search(r"[?&]index=(\d+)", query)
+                    if idx_m:
+                        val = int(idx_m.group(1)) - 1
+                        if 0 <= val < len(entries):
+                            target_idx = val
+                if target_idx is None:
+                    p_m = re.search(r"[?&]p=(\d+)", query)
+                    if p_m:
+                        val = int(p_m.group(1)) - 1
+                        if 0 <= val < len(entries):
+                            target_idx = val
+                if target_idx is not None and target_idx > 0:
+                    entries = entries[target_idx:] + entries[:target_idx]
+
             results = []
             for item in entries[:100]:
                 vid_id = item.get("id", "")
@@ -806,7 +835,15 @@ class UniversalResolver:
                     "webpage_url": target
                 })
             return results
-        except Exception:
+        except Exception as e:
+            err_str = str(e)
+            if "confirm you're not a bot" in err_str.lower() or "sign in" in err_str.lower():
+                print("[WARNING] YouTube bot detection triggered. Cookies may be missing or expired in /app/data/cookies.txt!")
+                if self.alert_callback:
+                    try:
+                        self.alert_callback("YouTube bot detection triggered (Sign in to confirm you're not a bot). Cookies may be missing or expired in `/app/data/cookies.txt`.")
+                    except Exception:
+                        pass
             return []
 
     async def _fetch_sponsorblock_offset(self, video_id: str) -> float:
@@ -852,9 +889,9 @@ class UniversalResolver:
 
         try:
             reconnect_flags = (
-                "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 "
+                "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
                 "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-                "-reconnect_delay_max 3 -rw_timeout 15000000 -probesize 128k -analyzeduration 0"
+                "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 128k -analyzeduration 0"
             )
 
             if "streetvoice.com" in target:
@@ -956,11 +993,13 @@ class UniversalResolver:
                 return None
 
             stream_url = info.get("url")
+            chosen_format = None
             if not stream_url:
                 formats = info.get("formats", [])
                 audio_formats = [f for f in formats if f.get("acodec") != "none"]
                 if audio_formats:
-                    stream_url = audio_formats[-1].get("url")
+                    chosen_format = audio_formats[-1]
+                    stream_url = chosen_format.get("url")
 
             if not stream_url:
                 if not fut.done():
@@ -974,17 +1013,34 @@ class UniversalResolver:
             if video_id and not is_bili:
                 start_offset = await self._fetch_sponsorblock_offset(video_id)
 
-            user_agent = self.headers["User-Agent"]
+            http_headers = (chosen_format.get("http_headers") if chosen_format else None) or info.get("http_headers") or {}
+            user_agent = http_headers.get("User-Agent") or self.headers["User-Agent"]
+
+            reconnect_flags = (
+                "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
+                "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
+                "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 128k -analyzeduration 0"
+            )
+
+            hdr_lines = [f"User-Agent: {user_agent}"]
             if is_bili:
-                before_opts = (
-                    f'-headers "User-Agent: {user_agent}\r\nReferer: https://www.bilibili.com/\r\nOrigin: https://www.bilibili.com\r\n" '
-                    f'{reconnect_flags}'
-                )
+                referer = http_headers.get("Referer") or (clean_target if clean_target.startswith("http") else "https://www.bilibili.com/")
+                hdr_lines.append(f"Referer: {referer}")
+                hdr_lines.append("Origin: https://www.bilibili.com")
             else:
-                before_opts = (
-                    f'-headers "User-Agent: {user_agent}\r\n" '
-                    f'{reconnect_flags}'
-                )
+                if "referer" in [k.lower() for k in http_headers]:
+                    hdr_lines.append(f"Referer: {http_headers.get('Referer')}")
+
+            for hk, hv in http_headers.items():
+                if hk.lower() not in ("user-agent", "referer", "origin", "accept-encoding", "host"):
+                    clean_hv = str(hv).replace('"', '\\"')
+                    hdr_lines.append(f"{hk}: {clean_hv}")
+
+            hdrs_payload = "\r\n".join(hdr_lines) + "\r\n"
+            before_opts = (
+                f'-headers "{hdrs_payload}" '
+                f'{reconnect_flags}'
+            )
 
             if start_offset > 0.0:
                 before_opts += f" -ss {start_offset}"
@@ -1011,7 +1067,8 @@ class UniversalResolver:
                 "stream_url": stream_url,
                 "is_live": False if duration > 0 else info.get("is_live", False),
                 "before_options": before_opts,
-                "start_offset": start_offset
+                "start_offset": start_offset,
+                "http_headers": http_headers
             }
             async with self._cache_lock:
                 if len(self._stream_cache) > 2000:
@@ -1021,7 +1078,15 @@ class UniversalResolver:
             if not fut.done():
                 fut.set_result(res_dict)
             return res_dict
-        except Exception:
+        except Exception as e:
+            err_str = str(e)
+            if "confirm you're not a bot" in err_str.lower() or "sign in" in err_str.lower():
+                print("[WARNING] YouTube bot detection triggered. Cookies may be missing or expired in /app/data/cookies.txt!")
+                if self.alert_callback:
+                    try:
+                        self.alert_callback("YouTube bot detection triggered (Sign in to confirm you're not a bot). Cookies may be missing or expired in `/app/data/cookies.txt`.")
+                    except Exception:
+                        pass
             if not fut.done():
                 fut.set_result(None)
             return None
@@ -1126,4 +1191,99 @@ class UniversalResolver:
                     return data.get("plainLyrics") or data.get("syncedLyrics")
         except Exception:
             pass
+        return None
+
+    async def verify_cookies_task(self):
+        if not getattr(self, "cookie_path", None):
+            if self.alert_callback:
+                try:
+                    self.alert_callback("System Alert: cookies.txt was not detected. YouTube streams may face rate limits.")
+                except Exception:
+                    pass
+            return
+
+        loop = asyncio.get_running_loop()
+
+        def _check():
+            opts = dict(self.ydl_opts_meta)
+            opts["playlistend"] = 1
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ", download=False)
+
+        try:
+            await loop.run_in_executor(self.executor, _check)
+        except Exception as e:
+            err_msg = str(e)
+            if any(k in err_msg.lower() for k in ("bot", "sign in", "login", "confirm")):
+                if self.alert_callback:
+                    try:
+                        self.alert_callback(f"YouTube Cookie Alert: Verification triggered or cookies expired: {err_msg[:120]}")
+                    except Exception:
+                        pass
+
+    def _cleanup_audio_cache(self, max_bytes: int = 1024 * 1024 * 1024):
+        cache_dir = os.path.join("/app/uploads" if os.path.exists("/app/uploads") else "uploads", "cache")
+        if not os.path.exists(cache_dir):
+            return
+        try:
+            entries = []
+            total_size = 0
+            for f in os.listdir(cache_dir):
+                fp = os.path.join(cache_dir, f)
+                if os.path.isfile(fp):
+                    st = os.stat(fp)
+                    total_size += st.st_size
+                    entries.append((st.st_mtime, st.st_size, fp))
+            if total_size > max_bytes:
+                entries.sort(key=lambda x: x[0])
+                for _, size, path in entries:
+                    try:
+                        os.remove(path)
+                        total_size -= size
+                    except Exception:
+                        pass
+                    if total_size <= int(max_bytes * 0.75):
+                        break
+        except Exception:
+            pass
+
+    async def preload_track_audio(self, stream_url: str, http_headers: Dict[str, Any], track_id: str) -> Optional[str]:
+        if not stream_url or not track_id:
+            return None
+        safe_id = re.sub(r"[^0-9A-Za-z_-]", "_", str(track_id))
+        cache_dir = os.path.join("/app/uploads" if os.path.exists("/app/uploads") else "uploads", "cache")
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except Exception:
+            return None
+
+        target_path = os.path.join(cache_dir, f"{safe_id}.audio")
+        part_path = os.path.join(cache_dir, f"{safe_id}.part")
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 10240:
+            return target_path
+
+        session = await self.get_session()
+        try:
+            req_headers = dict(http_headers or {})
+            if "User-Agent" not in req_headers:
+                req_headers["User-Agent"] = self.headers["User-Agent"]
+            async with session.get(stream_url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=None, connect=5, sock_read=15)) as resp:
+                if resp.status not in (200, 206):
+                    return None
+                with open(part_path, "wb") as f:
+                    while True:
+                        chunk = await resp.content.read(256 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                if os.path.exists(part_path) and os.path.getsize(part_path) > 10240:
+                    os.replace(part_path, target_path)
+                    self._cleanup_audio_cache()
+                    return target_path
+        except Exception:
+            if os.path.exists(part_path):
+                try:
+                    os.remove(part_path)
+                except Exception:
+                    pass
         return None
