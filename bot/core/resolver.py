@@ -25,7 +25,7 @@ class UniversalResolver:
 
         youtube_extractor_args = {
             "youtube": {
-                "player_client": ["android", "ios", "mweb"]
+                "player_client": ["web_creator", "mweb", "android"]
             }
         }
 
@@ -45,7 +45,7 @@ class UniversalResolver:
             self.ydl_opts_meta["cookiefile"] = cookie_path
 
         self.ydl_opts_stream = {
-            "format": "ba[protocol^=http]/ba/b",
+            "format": "bestaudio/best",
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
@@ -839,6 +839,7 @@ class UniversalResolver:
         try:
             reconnect_flags = (
                 "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 "
+                "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
                 "-reconnect_delay_max 5 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
             )
 
