@@ -29,5 +29,7 @@ logs/
 .vscode/
 *.sublime-project
 *.sublime-workspace
+.commands_hash
+bot/.commands_hash
 .DS_Store
 Thumbs.db
