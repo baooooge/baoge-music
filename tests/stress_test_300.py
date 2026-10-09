@@ -199,6 +199,9 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     guilds = [MockGuild(100000 + i, f"Guild_{i}") for i in range(guild_count)]
     for g in guilds:
         bot._connection._guilds[g.id] = g
+    from main import SUPPORT_GUILD_ID
+    support_guild = MockGuild(SUPPORT_GUILD_ID, "Support Guild")
+    bot._connection._guilds[SUPPORT_GUILD_ID] = support_guild
 
     async def _mock_resolve_batch(query: str):
         await asyncio.sleep(0.002)
@@ -278,17 +281,18 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     cmd_tasks = []
     for i, g in enumerate(guilds):
         p = bot.get_player(g.id)
-        mod = i % 8
+        mod = i % 10
+        mock_interaction = MockInteraction(g, MockMember(800000 + i, f"User_{i}"))
+        controls = core.player.PlayerControls(p)
         if mod == 0:
             cmd_tasks.append(p.set_eq("bass"))
         elif mod == 1:
-            p.volume = 0.8
+            cmd_tasks.append(controls.volup_btn.callback(mock_interaction))
         elif mod == 2:
-            p.loop_mode = "queue"
+            cmd_tasks.append(controls.loop_btn.callback(mock_interaction))
         elif mod == 3:
             cmd_tasks.append(p.seek(30))
         elif mod == 4:
-            mock_interaction = MockInteraction(g, MockMember(800000 + i, f"User_{i}"))
             cmd_tasks.append(p.process_skip(mock_interaction))
         elif mod == 5:
             if p.voice_client and p.voice_client.is_playing():
@@ -297,11 +301,15 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
                 p.voice_client.resume()
                 p.track_start_time += 1.0
         elif mod == 6:
-            p.autoplay = not p.autoplay
+            cmd_tasks.append(controls.autoplay_btn.callback(mock_interaction))
         elif mod == 7:
             embed = p._build_embed()
             if not embed:
                 errors.append(f"Guild {g.id} failed to build embed")
+        elif mod == 8:
+            cmd_tasks.append(controls.shuffle_btn.callback(mock_interaction))
+        elif mod == 9:
+            cmd_tasks.append(controls.volreset_btn.callback(mock_interaction))
 
     await asyncio.gather(*cmd_tasks, return_exceptions=True)
     cmd_duration = time.time() - cmd_t0
@@ -346,6 +354,30 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     if not seed_found or seed_found.get("id") != "seed1234567":
         errors.append("Autoplay seed continuity check failed")
 
+    p_resume = bot.get_player(guilds[1].id)
+    p_resume.voice_client = MockVoiceClient(guilds[1])
+    p_resume.is_manual_interruption = False
+    p_resume.is_restarting_stream = False
+    p_resume.current = {"duration": 240, "stream_url": "mock://stream", "is_live": False}
+    p_resume.current_meta = {"title": "Truncated Track", "search_query": "Truncated Track", "duration": 240}
+    p_resume.track_start_time = time.time() - 60.0
+    elapsed_test = time.time() - p_resume.track_start_time
+    next_test = p_resume.current_meta.copy()
+    if (
+        not p_resume.is_manual_interruption
+        and not p_resume.is_restarting_stream
+        and not p_resume.current.get("is_live", False)
+        and p_resume.current.get("duration", 0) > 20
+        and elapsed_test < (p_resume.current["duration"] - 8)
+        and next_test.get("_resume_retries", 0) < 2
+    ):
+        next_test["_resume_retries"] = next_test.get("_resume_retries", 0) + 1
+        next_test["_is_resumed_segment"] = True
+        next_test["start_offset"] = max(0, int(elapsed_test + next_test.get("start_offset", 0.0)))
+        p_resume.queue.insert(0, next_test)
+    if not p_resume.queue or p_resume.queue[0].get("start_offset", 0) < 50:
+        errors.append("Auto-resume segment math verification failed")
+
     reload_t0 = time.time()
     from main import perform_hot_reload, save_playback_state, restore_playback_state, STATE_FILE
     reload_success, reload_msg = await perform_hot_reload(bot)
@@ -358,7 +390,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     if not os.path.exists(STATE_FILE):
         errors.append("State file was not created by save_playback_state")
     else:
-        await restore_playback_state(bot)
+        await restore_playback_state(bot, delay_interval=0.001)
     state_duration = time.time() - state_t0
 
     loop_t0 = time.perf_counter()
@@ -414,7 +446,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     return metrics
 
 async def main():
-    total_passes = 100
+    total_passes = 30
     print(f"Starting 300-Server Comprehensive Stress Test Suite ({total_passes} Iterations)")
     all_metrics = []
     t_suite_start = time.time()

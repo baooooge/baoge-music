@@ -852,9 +852,9 @@ class UniversalResolver:
 
         try:
             reconnect_flags = (
-                "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 "
+                "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 "
                 "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-                "-reconnect_delay_max 5 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
+                "-reconnect_delay_max 3 -rw_timeout 15000000 -probesize 128k -analyzeduration 0"
             )
 
             if "streetvoice.com" in target:

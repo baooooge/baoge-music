@@ -29,8 +29,14 @@ OFFICIAL_WEBSITE_URL = os.getenv("OFFICIAL_WEBSITE_URL", "https://musicbot.bybao
 DONATE_URL = os.getenv("DONATE_URL", "https://donate.bybaoge.com/")
 
 _MEMBERSHIP_CACHE = {}
-_MEMBERSHIP_LOCK = asyncio.Lock()
+_MEMBERSHIP_LOCK: Optional[asyncio.Lock] = None
 _IN_FLIGHT_AUTH: Dict[int, asyncio.Future] = {}
+
+def get_membership_lock() -> asyncio.Lock:
+    global _MEMBERSHIP_LOCK
+    if _MEMBERSHIP_LOCK is None:
+        _MEMBERSHIP_LOCK = asyncio.Lock()
+    return _MEMBERSHIP_LOCK
 
 async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bool:
     if not SUPPORT_GUILD_ID:
@@ -44,7 +50,8 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
         if not is_member and (now - cached_time < 60):
             return False
 
-    async with _MEMBERSHIP_LOCK:
+    mem_lock = get_membership_lock()
+    async with mem_lock:
         if user_id in _IN_FLIGHT_AUTH:
             return await _IN_FLIGHT_AUTH[user_id]
         fut = asyncio.get_running_loop().create_future()
@@ -88,7 +95,7 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
             fut.set_result(False)
         return False
     finally:
-        async with _MEMBERSHIP_LOCK:
+        async with mem_lock:
             _IN_FLIGHT_AUTH.pop(user_id, None)
 
 class LocalizationManager:
@@ -146,6 +153,8 @@ class MusicBot(commands.Bot):
             self.watcher_task.cancel()
         if self.status_task and not self.status_task.done():
             self.status_task.cancel()
+        if hasattr(self, "resolver") and self.resolver and hasattr(self.resolver, "close"):
+            await self.resolver.close()
         await super().close()
 
     async def auto_hot_reload_loop(self):
@@ -520,8 +529,7 @@ async def skipto(interaction: discord.Interaction, index: int):
     if not player.queue or index < 1 or index > len(player.queue):
         return await interaction.response.send_message("Invalid index.", ephemeral=True)
     player.queue = player.queue[index - 1:]
-    if player.voice_client:
-        player.voice_client.stop()
+    player.stop_current()
     await interaction.response.send_message(f"#{index}")
 
 @bot.tree.command(name="pause", description="暫停播放 / Pause / 一時停止")
@@ -550,8 +558,7 @@ async def stop(interaction: discord.Interaction):
     player.autoplay = False
     player.loop_mode = "off"
     vc = player.voice_client
-    if vc and (vc.is_playing() or vc.is_paused()):
-        vc.stop()
+    player.stop_current()
     await interaction.response.send_message("Stopped.")
     if vc:
         await vc.disconnect()
@@ -667,15 +674,8 @@ def save_playback_state(bot_instance: commands.Bot):
         except Exception:
             pass
 
-async def _delayed_seek(player, pos: int):
-    await asyncio.sleep(2.0)
-    try:
-        if player.voice_client and player.voice_client.is_playing():
-            await player.seek(pos)
-    except Exception:
-        pass
 
-async def restore_playback_state(bot_instance: commands.Bot):
+async def restore_playback_state(bot_instance: commands.Bot, delay_interval: float = 1.5):
     if not os.path.exists(STATE_FILE):
         return
     try:
@@ -709,19 +709,19 @@ async def restore_playback_state(bot_instance: commands.Bot):
 
             current_item = data.get("current")
             if current_item:
+                seek_pos = data.get("elapsed", 0)
+                if seek_pos > 0:
+                    current_item["start_offset"] = seek_pos
                 player.queue.insert(0, current_item)
 
             try:
                 if not player.voice_client or not player.voice_client.is_connected():
                     player.voice_client = await asyncio.wait_for(v_channel.connect(self_deaf=True), timeout=10.0)
                 player.ensure_audio_task()
-                seek_pos = data.get("elapsed", 0)
-                if seek_pos > 0:
-                    asyncio.create_task(_delayed_seek(player, seek_pos))
             except Exception:
                 pass
 
-    tasks = [_restore_single_guild(gid, d, idx * 0.4) for idx, (gid, d) in enumerate(state.items())]
+    tasks = [_restore_single_guild(gid, d, idx * delay_interval) for idx, (gid, d) in enumerate(state.items())]
     await asyncio.gather(*tasks, return_exceptions=True)
 
 async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
@@ -732,7 +732,10 @@ async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
         bot_instance.i18n._load_locales()
         importlib.reload(core.resolver)
         importlib.reload(core.player)
+        old_resolver = getattr(bot_instance, "resolver", None)
         bot_instance.resolver = core.resolver.UniversalResolver()
+        if old_resolver and hasattr(old_resolver, "close"):
+            asyncio.create_task(old_resolver.close())
         for p in bot_instance.players.values():
             p.__class__ = core.player.GuildPlayer
             p.resolver = bot_instance.resolver
@@ -828,7 +831,7 @@ if __name__ == "__main__":
             import signal
             signal.signal(signal.SIGTERM, lambda s, f: save_playback_state(bot))
             signal.signal(signal.SIGINT, lambda s, f: save_playback_state(bot))
-            signal.signal(signal.SIGHUP, lambda s, f: asyncio.create_task(perform_hot_reload(bot)))
+            signal.signal(signal.SIGHUP, lambda s, f: bot.loop.call_soon_threadsafe(lambda: asyncio.create_task(perform_hot_reload(bot))))
         except Exception:
             pass
     bot.run(token)

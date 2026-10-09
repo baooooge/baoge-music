@@ -46,9 +46,9 @@ EQ_LABELS = {
 }
 
 DEFAULT_BEFORE_OPTS = (
-    "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 "
+    "-loglevel error -nostats -reconnect 1 -reconnect_at_eof 1 "
     "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-    "-reconnect_delay_max 5 -rw_timeout 15000000 -probesize 64k -analyzeduration 0"
+    "-reconnect_delay_max 3 -rw_timeout 15000000 -probesize 128k -analyzeduration 0"
 )
 
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
@@ -135,8 +135,7 @@ class SkipToModal(discord.ui.Modal):
             return await interaction.response.send_message(msgs.get(loc, "Invalid range."), ephemeral=True)
 
         self.player.queue = self.player.queue[target_index - 1:]
-        if self.player.voice_client:
-            self.player.voice_client.stop()
+        self.player.stop_current()
         msgs = {
             "zh_TW": f"已跳至第 {target_index} 首歌曲。",
             "zh_CN": f"已跳至第 {target_index} 首歌曲。",
@@ -333,9 +332,7 @@ class PlayerControls(discord.ui.View):
         self.player.autoplay = False
         self.player.loop_mode = "off"
         self.player.stop_ticker()
-        vc = self.player.voice_client
-        if vc and (vc.is_playing() or vc.is_paused()):
-            vc.stop()
+        self.player.stop_current()
         msgs = {
             "zh_TW": "已清空隊列並離開語音頻道。",
             "zh_CN": "已清空队列并离开语音频道。",
@@ -343,6 +340,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": "再生を停止し、ボイスチャンネルから退出しました。"
         }
         await interaction.response.send_message(msgs.get(loc, "Stopped."), ephemeral=True)
+        vc = self.player.voice_client
         if vc:
             await vc.disconnect()
 
@@ -442,8 +440,12 @@ class QueuePaginator(discord.ui.View):
         else:
             req_labels = {"zh_TW": "點播者", "zh_CN": "点播者", "en_US": "Requester", "ja_JP": "リクエスト"}
             r_str = req_labels.get(self.locale, "Requester")
-            lines = [f"`{start + i + 1}.` {item['title']} ({r_str}: <@{item.get('requester_id', 'Unknown')}>)" for i, item in enumerate(items)]
-            embed.description = "\n".join(lines)
+            lines = []
+            for i, item in enumerate(items):
+                raw_title = str(item.get('title', 'Unknown'))
+                title_clean = raw_title[:70] + ("..." if len(raw_title) > 70 else "")
+                lines.append(f"`{start + i + 1}.` {title_clean} ({r_str}: <@{item.get('requester_id', 'Unknown')}>)")
+            embed.description = "\n".join(lines)[:4000]
 
         footers = {
             "zh_TW": f"第 {self.page + 1} / {self.max_page} 頁 • 總計 {len(self.queue)} 首",
@@ -490,6 +492,7 @@ class GuildPlayer:
         self.track_start_time = 0.0
         self.pause_time = 0.0
         self.is_restarting_stream = False
+        self.is_manual_interruption = False
         self.auto_disconnect = False
         self.skip_votes: Set[int] = set()
         self.ticker_task: Optional[asyncio.Task] = None
@@ -530,6 +533,11 @@ class GuildPlayer:
                 break
             except Exception:
                 pass
+
+    def stop_current(self):
+        self.is_manual_interruption = True
+        if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
+            self.voice_client.stop()
 
     async def seek(self, seconds: int):
         if not self.voice_client or not self.current or not self.current.get("stream_url"):
@@ -603,7 +611,7 @@ class GuildPlayer:
             self.queue.insert(0, self.current_meta)
         self.queue.insert(0, prev_item)
 
-        self.voice_client.stop()
+        self.stop_current()
         if interaction:
             msgs = {
                 "zh_TW": f"正在切換至上一首：{prev_item['title']}",
@@ -631,7 +639,7 @@ class GuildPlayer:
 
         if is_owner or is_admin or is_requester:
             self.skip_votes.clear()
-            self.voice_client.stop()
+            self.stop_current()
             roles = {
                 "zh_TW": "管理員" if (is_owner or is_admin) else "點播者",
                 "zh_CN": "管理员" if (is_owner or is_admin) else "点播者",
@@ -651,7 +659,7 @@ class GuildPlayer:
         total_listeners = len(listeners)
         if total_listeners <= 1:
             self.skip_votes.clear()
-            self.voice_client.stop()
+            self.stop_current()
             msgs = {
                 "zh_TW": "已跳過此曲目。",
                 "zh_CN": "已跳过此曲目。",
@@ -674,7 +682,7 @@ class GuildPlayer:
         current_votes = len(self.skip_votes)
         if current_votes >= required_votes:
             self.skip_votes.clear()
-            self.voice_client.stop()
+            self.stop_current()
             msgs = {
                 "zh_TW": f"投票通過 ({current_votes}/{required_votes})，已跳過當前歌曲！",
                 "zh_CN": f"投票通过 ({current_votes}/{required_votes})，已跳过当前歌曲！",
@@ -744,11 +752,11 @@ class GuildPlayer:
                 if self.loop_mode == "single" and self.current_meta:
                     next_item = self.current_meta
                 elif self.queue:
-                    if self.current_meta and self.loop_mode != "single":
+                    next_item = self.queue.pop(0)
+                    if self.current_meta and self.loop_mode != "single" and not next_item.get("_is_resumed_segment"):
                         self.history.append(self.current_meta)
                         if len(self.history) > 50:
                             self.history.pop(0)
-                    next_item = self.queue.pop(0)
                     if self.loop_mode == "queue" and self.current_meta:
                         self.queue.append(self.current_meta)
 
@@ -766,6 +774,8 @@ class GuildPlayer:
                 if not track_stream or not track_stream.get("stream_url"):
                     track_stream = await self.resolver.get_live_stream(next_item.get("title", next_item["search_query"]))
                     if not track_stream or not track_stream.get("stream_url"):
+                        self.current = None
+                        self.current_meta = None
                         continue
 
                 self.current = track_stream
@@ -792,9 +802,15 @@ class GuildPlayer:
                 if eq_filter:
                     base_opts += f' -af "{eq_filter}"'
 
+                self.is_manual_interruption = False
+                before_opts = self.current.get("before_options", DEFAULT_BEFORE_OPTS)
+                start_off = next_item.get("start_offset", 0.0)
+                if start_off > 0.0 and "-ss" not in before_opts:
+                    before_opts = f"{before_opts} -ss {start_off}"
+
                 raw_source = SafeFFmpegPCMAudio(
                     self.current["stream_url"],
-                    before_options=self.current.get("before_options", DEFAULT_BEFORE_OPTS),
+                    before_options=before_opts,
                     options=base_opts
                 )
                 audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
@@ -806,7 +822,24 @@ class GuildPlayer:
                     self.start_ticker()
                     await self.play_next_event.wait()
                     elapsed = time.time() - self.track_start_time
-                    if elapsed < 3.0 and not self.is_restarting_stream:
+                    exp_dur = self.current.get("duration", 0)
+                    if (
+                        not self.is_manual_interruption
+                        and not self.is_restarting_stream
+                        and not self.current.get("is_live", False)
+                        and exp_dur > 20
+                        and elapsed < (exp_dur - 8)
+                        and next_item.get("_resume_retries", 0) < 2
+                    ):
+                        next_item["_resume_retries"] = next_item.get("_resume_retries", 0) + 1
+                        next_item["_is_resumed_segment"] = True
+                        next_item["start_offset"] = max(0, int(elapsed + next_item.get("start_offset", 0.0)))
+                        if hasattr(self.resolver, "invalidate_stream_cache"):
+                            await self.resolver.invalidate_stream_cache(next_item["search_query"])
+                        self.queue.insert(0, next_item)
+                        continue
+
+                    if elapsed < 3.0 and not self.is_restarting_stream and not self.is_manual_interruption:
                         if hasattr(self.resolver, "invalidate_stream_cache"):
                             await self.resolver.invalidate_stream_cache(next_item["search_query"])
                 else:
