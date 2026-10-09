@@ -637,13 +637,28 @@ class UniversalResolver:
             if token in t and token not in q:
                 score -= penalty
 
+        clean_q = self._clean_title_for_comparison(q) if q else ""
+        clean_t = self._clean_title_for_comparison(title)
+
+        q_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_q) if len(tok) >= 1]
+        t_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_t) if len(tok) >= 1]
+
+        is_official_channel = (
+            (" - topic" in u or u.endswith(" topic") or "topic" in u) or
+            ("vevo" in u) or
+            any(k in u for k in ["official", "官方", "records", "music", "entertainment"])
+        )
+        if q_tokens:
+            for tok in q_tokens:
+                if len(tok) >= 2 and tok in u:
+                    is_official_channel = True
+                    score += 80
+
+        has_lyric_term = any(k in t for k in ["lyric", "lyrics", "歌詞"])
+        if has_lyric_term and not is_official_channel and "lyric" not in q and "歌詞" not in q:
+            score -= 260
+
         if q:
-            clean_q = self._clean_title_for_comparison(q)
-            clean_t = self._clean_title_for_comparison(title)
-
-            q_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_q) if len(tok) >= 1]
-            t_tokens = [tok for tok in re.split(r"[\s\-_/|]+", clean_t) if len(tok) >= 1]
-
             matched_tokens = 0
             if q_tokens:
                 for tok in q_tokens:
@@ -676,25 +691,24 @@ class UniversalResolver:
                 if sim < 0.2 and matched_tokens == 0:
                     score -= 500
 
-        is_topic = " - topic" in u or u.endswith(" topic") or "topic" in u
-        if is_topic:
-            score += 35
+        if " - topic" in u or u.endswith(" topic") or "topic" in u:
+            score += 80
         elif "vevo" in u:
-            score += 25
+            score += 60
 
         if any(k in t for k in ["official audio", "官方音頻"]):
-            score += 30
+            score += 80
         elif any(k in t for k in ["official lyric video", "official lyrics video", "官方歌詞"]):
-            score += 28
+            score += 70
         elif any(k in t for k in ["official music video", "official mv", "官方mv", "官方音樂"]):
-            score += 25
+            score += 75
         elif any(k in t for k in ["official video", "official visualizer", "官方完整版"]):
-            score += 20
+            score += 60
         elif "official" in t or "官方" in t:
-            score += 15
+            score += 50
 
         if any(k in t for k in ["studio version", "錄音室", "工作室", "原版", "原唱", "original version"]):
-            score += 20
+            score += 50
 
         if duration > 0:
             if 90 <= duration <= 420:
