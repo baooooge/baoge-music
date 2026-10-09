@@ -721,9 +721,7 @@ class GuildPlayer:
                     else:
                         idle_counter = 0
 
-                if self.loop_mode == "single" and self.current_meta:
-                    next_item = self.current_meta
-                elif not self.queue:
+                if not self.queue and self.loop_mode != "single":
                     if self.loop_mode == "queue" and self.current_meta:
                         self.queue.append(self.current_meta)
                     if not self.queue and self.autoplay:
@@ -737,12 +735,24 @@ class GuildPlayer:
                                     "zh_TW": "自動推薦續播",
                                     "zh_CN": "自动推荐续播",
                                     "en_US": "Autoplay",
-                                    "ja_JP": "自動連続再生"
+                                    "ja_JP": "自動連續再生"
                                 }
                                 rec["requester_name"] = ap_names.get(self.locale, "Autoplay")
                                 self.queue.append(rec)
 
-                if not self.queue and self.loop_mode != "single":
+                next_item = None
+                if self.loop_mode == "single" and self.current_meta:
+                    next_item = self.current_meta
+                elif self.queue:
+                    if self.current_meta and self.loop_mode != "single":
+                        self.history.append(self.current_meta)
+                        if len(self.history) > 50:
+                            self.history.pop(0)
+                    next_item = self.queue.pop(0)
+                    if self.loop_mode == "queue" and self.current_meta:
+                        self.queue.append(self.current_meta)
+
+                if not next_item:
                     self.current = None
                     self.current_meta = None
                     self.queue_event.clear()
@@ -751,16 +761,6 @@ class GuildPlayer:
                     except (asyncio.TimeoutError, TimeoutError):
                         pass
                     continue
-
-                if self.loop_mode != "single":
-                    if self.current_meta:
-                        self.history.append(self.current_meta)
-                        if len(self.history) > 50:
-                            self.history.pop(0)
-
-                    next_item = self.queue.pop(0)
-                    if self.loop_mode == "queue" and self.current_meta:
-                        self.queue.append(self.current_meta)
 
                 track_stream = await self.resolver.get_live_stream(next_item["search_query"])
                 if not track_stream or not track_stream.get("stream_url"):
