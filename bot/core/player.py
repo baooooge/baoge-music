@@ -49,7 +49,7 @@ EQ_LABELS = {
 DEFAULT_BEFORE_OPTS = (
     "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
     "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-    "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 32k -analyzeduration 0 "
+    "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 512k -analyzeduration 100000 "
     "-fflags nobuffer+fastseek -flush_packets 1"
 )
 

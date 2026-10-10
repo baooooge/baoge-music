@@ -118,25 +118,40 @@ class UniversalResolver:
         self._kkbox_token = None
         self._kkbox_token_expiry = 0
         self.alert_callback = None
+        self._cookie_rate_limited_until = 0.0
 
     def _acquire_ydl_meta(self) -> yt_dlp.YoutubeDL:
+        is_cookie_blocked = time.time() < self._cookie_rate_limited_until
         with self._pool_lock:
+            if is_cookie_blocked:
+                opts = dict(self.ydl_opts_meta)
+                opts.pop("cookiefile", None)
+                return yt_dlp.YoutubeDL(opts)
             if self._meta_pool:
                 return self._meta_pool.pop()
         return yt_dlp.YoutubeDL(self.ydl_opts_meta)
 
     def _release_ydl_meta(self, ydl_inst: yt_dlp.YoutubeDL):
+        if time.time() < self._cookie_rate_limited_until:
+            return
         with self._pool_lock:
             if len(self._meta_pool) < 16:
                 self._meta_pool.append(ydl_inst)
 
     def _acquire_ydl_stream(self) -> yt_dlp.YoutubeDL:
+        is_cookie_blocked = time.time() < self._cookie_rate_limited_until
         with self._pool_lock:
+            if is_cookie_blocked:
+                opts = dict(self.ydl_opts_stream)
+                opts.pop("cookiefile", None)
+                return yt_dlp.YoutubeDL(opts)
             if self._stream_pool:
                 return self._stream_pool.pop()
         return yt_dlp.YoutubeDL(self.ydl_opts_stream)
 
     def _release_ydl_stream(self, ydl_inst: yt_dlp.YoutubeDL):
+        if time.time() < self._cookie_rate_limited_until:
+            return
         with self._pool_lock:
             if len(self._stream_pool) < 16:
                 self._stream_pool.append(ydl_inst)
@@ -1017,6 +1032,16 @@ class UniversalResolver:
                 return ydl_inst.extract_info(target_query, download=False)
             except Exception as ex:
                 err_msg = str(ex).lower()
+                if any(k in err_msg for k in ["rate-limit", "content isn't available", "not available", "sign in", "bot"]):
+                    self._cookie_rate_limited_until = time.time() + 3600
+                try:
+                    retry_opts = dict(self.ydl_opts_meta)
+                    retry_opts.pop("cookiefile", None)
+                    retry_opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+                    with yt_dlp.YoutubeDL(retry_opts) as ydl_retry:
+                        return ydl_retry.extract_info(target_query, download=False)
+                except Exception:
+                    pass
                 if "confirm your age" in err_msg or "sign in" in err_msg or "format is not available" in err_msg or "requested format" in err_msg:
                     try:
                         retry_opts = dict(opts)
@@ -1214,7 +1239,7 @@ class UniversalResolver:
             reconnect_flags = (
                 "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
                 "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-                "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 128k -analyzeduration 0"
+                "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 512k -analyzeduration 100000"
             )
 
             if "streetvoice.com" in target:
@@ -1294,6 +1319,21 @@ class UniversalResolver:
                     return ydl_inst.extract_info(f"ytsearch5:{clean_target}", download=False)
                 except Exception as ex:
                     err_msg = str(ex).lower()
+                    if any(k in err_msg for k in ["rate-limit", "content isn't available", "not available", "sign in", "bot"]):
+                        self._cookie_rate_limited_until = time.time() + 3600
+
+                    try:
+                        retry_opts = dict(self.ydl_opts_stream)
+                        retry_opts.pop("cookiefile", None)
+                        retry_opts["format"] = "best/ba/b"
+                        retry_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+                        with yt_dlp.YoutubeDL(retry_opts) as ydl_retry:
+                            if clean_target.startswith("http"):
+                                return ydl_retry.extract_info(clean_target, download=False)
+                            return ydl_retry.extract_info(f"ytsearch5:{clean_target}", download=False)
+                    except Exception:
+                        pass
+
                     if "confirm your age" in err_msg or "sign in" in err_msg:
                         try:
                             retry_opts = dict(opts)
@@ -1366,6 +1406,25 @@ class UniversalResolver:
                     stream_url = chosen_format.get("url")
 
             if not stream_url:
+                try:
+                    retry_opts = dict(self.ydl_opts_stream)
+                    retry_opts.pop("cookiefile", None)
+                    retry_opts["format"] = "best/ba/b"
+                    retry_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+                    with yt_dlp.YoutubeDL(retry_opts) as ydl_retry:
+                        retry_info = ydl_retry.extract_info(clean_target, download=False)
+                        if retry_info:
+                            stream_url = retry_info.get("url")
+                            if not stream_url:
+                                afs = [f for f in retry_info.get("formats", []) if f.get("acodec") != "none"]
+                                if afs:
+                                    chosen_format = afs[-1]
+                                    stream_url = chosen_format.get("url")
+                                    info = retry_info
+                except Exception:
+                    pass
+
+            if not stream_url:
                 if not fut.done():
                     fut.set_result(None)
                 return None
@@ -1389,7 +1448,7 @@ class UniversalResolver:
             reconnect_flags = (
                 "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
                 "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-                "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 32k -analyzeduration 0 "
+                "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 512k -analyzeduration 100000 "
                 "-fflags nobuffer+fastseek -flush_packets 1"
             )
 
@@ -1408,10 +1467,13 @@ class UniversalResolver:
                     hdr_lines.append(f"{hk}: {clean_hv}")
 
             hdrs_payload = "\r\n".join(hdr_lines) + "\r\n"
-            before_opts = (
-                f'-headers "{hdrs_payload}" '
-                f'{reconnect_flags}'
-            )
+            if "googlevideo.com" in stream_url or "youtube.com" in stream_url:
+                before_opts = reconnect_flags
+            else:
+                before_opts = (
+                    f'-headers "{hdrs_payload}" '
+                    f'{reconnect_flags}'
+                )
 
             if start_offset > 0.0:
                 before_opts += f" -ss {start_offset}"
@@ -1559,10 +1621,6 @@ class UniversalResolver:
 
         clean_title = self._clean_title_for_comparison(target_title)
         query = clean_title or target_title
-
-        bili_stream = await self._search_bilibili_stream(query)
-        if bili_stream and bili_stream.get("stream_url"):
-            return bili_stream
 
         sc_stream = await self._search_soundcloud_stream(query)
         if sc_stream and sc_stream.get("stream_url"):
