@@ -224,10 +224,17 @@ class PlayerControls(discord.ui.View):
 
     async def _safe_send(self, interaction: discord.Interaction, content: str = None, embed: discord.Embed = None, view: discord.ui.View = None, ephemeral: bool = True):
         try:
+            kwargs = {"ephemeral": ephemeral}
+            if content is not None:
+                kwargs["content"] = content
+            if embed is not None:
+                kwargs["embed"] = embed
+            if view is not None:
+                kwargs["view"] = view
             if not interaction.response.is_done():
-                await interaction.response.send_message(content=content, embed=embed, view=view, ephemeral=ephemeral)
+                await interaction.response.send_message(**kwargs)
             else:
-                await interaction.followup.send(content=content, embed=embed, view=view, ephemeral=ephemeral)
+                await interaction.followup.send(**kwargs)
         except (discord.NotFound, discord.HTTPException):
             pass
 

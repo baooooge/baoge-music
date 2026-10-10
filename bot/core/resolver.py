@@ -53,9 +53,14 @@ class UniversalResolver:
         cookie_path = next((p for p in possible_cookie_paths if self._is_valid_cookie_file(p)), None)
         self.cookie_path = cookie_path
 
-        youtube_extractor_args = {
+        youtube_meta_extractor_args = {
             "youtube": {
-                "player_client": ["android", "web"]
+                "player_client": ["web"]
+            }
+        }
+        youtube_stream_extractor_args = {
+            "youtube": {
+                "player_client": ["android"]
             }
         }
 
@@ -72,7 +77,7 @@ class UniversalResolver:
             "extractor_retries": 1,
             "socket_timeout": 5,
             "http_headers": self.headers,
-            "extractor_args": youtube_extractor_args,
+            "extractor_args": youtube_meta_extractor_args,
             "youtube_include_dash_manifest": False,
             "youtube_include_hls_manifest": False
         }
@@ -90,7 +95,7 @@ class UniversalResolver:
             "extractor_retries": 1,
             "socket_timeout": 5,
             "http_headers": self.headers,
-            "extractor_args": youtube_extractor_args,
+            "extractor_args": youtube_stream_extractor_args,
             "youtube_include_dash_manifest": False,
             "youtube_include_hls_manifest": False
         }
@@ -1037,7 +1042,7 @@ class UniversalResolver:
                 try:
                     retry_opts = dict(self.ydl_opts_meta)
                     retry_opts.pop("cookiefile", None)
-                    retry_opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+                    retry_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
                     with yt_dlp.YoutubeDL(retry_opts) as ydl_retry:
                         return ydl_retry.extract_info(target_query, download=False)
                 except Exception:
