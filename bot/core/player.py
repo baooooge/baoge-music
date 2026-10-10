@@ -789,6 +789,7 @@ class GuildPlayer:
             except Exception:
                 pass
         idle_counter = 0
+        idle_playback_counter = 0
         while not self.bot.is_closed():
             try:
                 self.play_next_event.clear()
@@ -854,11 +855,29 @@ class GuildPlayer:
                         self.queue_event.clear()
 
                 if not next_item:
+                    if self.auto_disconnect and self.voice_client and self.voice_client.is_connected():
+                        idle_playback_counter += 1
+                        if idle_playback_counter >= 90:
+                            await self.voice_client.disconnect()
+                            if self.current_text_channel:
+                                msgs = {
+                                    "zh_TW": "播放已結束且閒置超過 3 分鐘，已自動離開語音頻道。",
+                                    "zh_CN": "播放已结束且闲置超过 3 分钟，已自动离开语音频道。",
+                                    "en_US": "Playback finished and idle for 3 minutes. Disconnected.",
+                                    "ja_JP": "再生が終了し、3分間待機したため自動退出しました。"
+                                }
+                                try:
+                                    await self.current_text_channel.send(msgs.get(self.locale, "Disconnected due to inactivity."))
+                                except Exception:
+                                    pass
+                            break
                     try:
                         await asyncio.wait_for(self.queue_event.wait(), timeout=2.0)
                     except (asyncio.TimeoutError, TimeoutError):
                         pass
                     continue
+                else:
+                    idle_playback_counter = 0
 
                 track_stream = await self.resolver.get_live_stream(next_item["search_query"])
                 if track_stream and track_stream.get("stream_url", "").startswith("https://b23.tv"):
