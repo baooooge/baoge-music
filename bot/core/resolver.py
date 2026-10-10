@@ -1056,6 +1056,20 @@ class UniversalResolver:
                 info = await loop.run_in_executor(self.executor, lambda: _extract(search_target))
 
             if not info:
+                if is_url and ("youtube.com" in query or "youtu.be" in query):
+                    fallback_title = await self._fetch_title_from_oembed(query)
+                    if fallback_title:
+                        v_match = re.search(r"(?:v=|youtu\.be/)([0-9A-Za-z_-]{11})", query)
+                        vid_id = v_match.group(1) if v_match else None
+                        return [{
+                            "title": fallback_title,
+                            "search_query": query,
+                            "id": vid_id,
+                            "duration": 0,
+                            "uploader": "YouTube",
+                            "thumbnail": f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg" if vid_id else "",
+                            "webpage_url": query
+                        }]
                 return []
 
             entries = [e for e in info.get("entries", [info]) if e]
