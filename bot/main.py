@@ -417,7 +417,7 @@ class MusicBot(commands.Bot):
             pass
         if not self.status_task:
             self.status_task = asyncio.create_task(self.dynamic_presence_loop())
-        if not self.watcher_task:
+        if not self.watcher_task and os.getenv("ENABLE_AUTO_RELOAD", "0") == "1":
             self.watcher_task = asyncio.create_task(self.auto_hot_reload_loop())
         asyncio.create_task(restore_playback_state(self))
         if hasattr(self.resolver, "verify_cookies_task"):

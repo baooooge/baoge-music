@@ -1723,6 +1723,16 @@ class UniversalResolver:
         except Exception:
             pass
 
+    def get_cached_track_path(self, track_id: str) -> Optional[str]:
+        if not track_id:
+            return None
+        safe_id = re.sub(r"[^0-9A-Za-z_-]", "_", str(track_id))
+        cache_dir = os.path.join("/app/uploads" if os.path.exists("/app/uploads") else "uploads", "cache")
+        target_path = os.path.join(cache_dir, f"{safe_id}.audio")
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 10240:
+            return target_path
+        return None
+
     async def preload_track_audio(self, stream_url: str, http_headers: Dict[str, Any], track_id: str) -> Optional[str]:
         if not stream_url or not track_id:
             return None

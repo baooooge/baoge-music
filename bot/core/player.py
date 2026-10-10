@@ -911,13 +911,10 @@ class GuildPlayer:
                 before_opts = self.current.get("before_options", DEFAULT_BEFORE_OPTS)
                 start_off = float(self.current.get("start_offset") or next_item.get("start_offset") or 0.0)
 
-                if not self.current.get("is_live", False) and hasattr(self.resolver, "preload_track_audio"):
-                    cached_file = await self.resolver.preload_track_audio(
-                        self.current["stream_url"],
-                        self.current.get("http_headers", {}),
-                        self.current.get("id") or next_item.get("id") or str(abs(hash(self.current["stream_url"])))
-                    )
-                    if cached_file and os.path.exists(cached_file) and os.path.getsize(cached_file) > 10240:
+                if not self.current.get("is_live", False) and hasattr(self.resolver, "get_cached_track_path"):
+                    track_uid = self.current.get("id") or next_item.get("id") or str(abs(hash(self.current["stream_url"])))
+                    cached_file = self.resolver.get_cached_track_path(track_uid)
+                    if cached_file:
                         play_target = cached_file
                         before_opts = "-loglevel fatal -nostats"
 
