@@ -216,6 +216,21 @@ class PlayerControls(discord.ui.View):
 
         self.add_item(EQSelect(player))
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        if isinstance(error, (discord.NotFound, discord.HTTPException)):
+            if getattr(error, "code", None) == 10062 or "10062" in str(error):
+                return
+        await super().on_error(interaction, error, item)
+
+    async def _safe_send(self, interaction: discord.Interaction, content: str = None, embed: discord.Embed = None, view: discord.ui.View = None, ephemeral: bool = True):
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(content=content, embed=embed, view=view, ephemeral=ephemeral)
+            else:
+                await interaction.followup.send(content=content, embed=embed, view=view, ephemeral=ephemeral)
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if hasattr(self.player.bot, "security_gateway"):
             ok, remaining = self.player.bot.security_gateway.enforce_cooldown(
@@ -396,7 +411,7 @@ class PlayerControls(discord.ui.View):
             "en_US": f"Volume set to: {int(new_vol * 100)}%",
             "ja_JP": f"音量を {int(new_vol * 100)}% に変更しました"
         }
-        await interaction.response.send_message(msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
+        await self._safe_send(interaction, msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
         await self.player.update_panel_inplace()
 
     @discord.ui.button(label="音量 +10%", style=discord.ButtonStyle.secondary, row=2)
@@ -412,7 +427,7 @@ class PlayerControls(discord.ui.View):
             "en_US": f"Volume set to: {int(new_vol * 100)}%",
             "ja_JP": f"音量を {int(new_vol * 100)}% に変更しました"
         }
-        await interaction.response.send_message(msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
+        await self._safe_send(interaction, msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
         await self.player.update_panel_inplace()
 
     @discord.ui.button(label="重設 100%", style=discord.ButtonStyle.secondary, row=2)
@@ -427,7 +442,7 @@ class PlayerControls(discord.ui.View):
             "en_US": "Volume reset to 100%",
             "ja_JP": "音量を 100% にリセットしました"
         }
-        await interaction.response.send_message(msgs.get(loc, "Volume reset."), ephemeral=True)
+        await self._safe_send(interaction, msgs.get(loc, "Volume reset."), ephemeral=True)
         await self.player.update_panel_inplace()
 
     @discord.ui.button(label="清空佇列", style=discord.ButtonStyle.secondary, row=2)
@@ -441,7 +456,7 @@ class PlayerControls(discord.ui.View):
             "en_US": f"Cleared {count} tracks from queue.",
             "ja_JP": f"キュー内の {count} 曲を消去しました。"
         }
-        await interaction.response.send_message(msgs.get(loc, "Cleared queue."), ephemeral=True)
+        await self._safe_send(interaction, msgs.get(loc, "Cleared queue."), ephemeral=True)
         await self.player.update_panel_inplace()
 
 class QueuePaginator(discord.ui.View):
