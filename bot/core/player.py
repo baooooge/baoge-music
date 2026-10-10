@@ -191,7 +191,7 @@ class EQSelect(discord.ui.Select):
             "ja_JP": f"イコライザー設定を {label} に変更しました"
         }
         await interaction.response.send_message(msgs.get(loc, "EQ changed."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
 class PlayerControls(discord.ui.View):
     def __init__(self, player):
@@ -279,7 +279,7 @@ class PlayerControls(discord.ui.View):
                 "ja_JP": "再生を一時停止しました。"
             }
             await interaction.response.send_message(msgs.get(loc, "Paused."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="跳過", style=discord.ButtonStyle.secondary, row=0)
     async def skip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -291,8 +291,8 @@ class PlayerControls(discord.ui.View):
             return await interaction.response.send_message("Not playing.", ephemeral=True)
         current_pos = max(0, int(time.time() - self.player.track_start_time))
         new_pos = max(0, current_pos - 15)
-        await self.player.seek(new_pos)
         await interaction.response.send_message(f"{new_pos // 60:02d}:{new_pos % 60:02d}", ephemeral=True)
+        asyncio.create_task(self.player.seek(new_pos))
 
     @discord.ui.button(label="+15s", style=discord.ButtonStyle.secondary, row=0)
     async def fast_forward_15(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -300,8 +300,8 @@ class PlayerControls(discord.ui.View):
             return await interaction.response.send_message("Not playing.", ephemeral=True)
         current_pos = max(0, int(time.time() - self.player.track_start_time))
         new_pos = current_pos + 15
-        await self.player.seek(new_pos)
         await interaction.response.send_message(f"{new_pos // 60:02d}:{new_pos % 60:02d}", ephemeral=True)
+        asyncio.create_task(self.player.seek(new_pos))
 
     @discord.ui.button(label="跳至指定", style=discord.ButtonStyle.secondary, row=1)
     async def skipto_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -331,7 +331,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": f"ループモードを {labels[self.player.loop_mode]} に設定しました"
         }
         await interaction.response.send_message(msgs.get(loc, "Loop mode updated."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="自動續播", style=discord.ButtonStyle.secondary, row=1)
     async def autoplay_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -344,7 +344,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": f"自動連続再生を{'有効' if self.player.autoplay else '無効'}にしました。"
         }
         await interaction.response.send_message(msgs.get(loc, "Autoplay updated."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="隨機打亂", style=discord.ButtonStyle.secondary, row=1)
     async def shuffle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -365,7 +365,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": "キューの曲順をシャッフルしました。"
         }
         await interaction.response.send_message(msgs.get(loc, "Shuffled."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="待播清單", style=discord.ButtonStyle.secondary, row=1)
     async def queue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -412,7 +412,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": f"音量を {int(new_vol * 100)}% に変更しました"
         }
         await self._safe_send(interaction, msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="音量 +10%", style=discord.ButtonStyle.secondary, row=2)
     async def volup_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -428,7 +428,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": f"音量を {int(new_vol * 100)}% に変更しました"
         }
         await self._safe_send(interaction, msgs.get(loc, f"Volume: {int(new_vol * 100)}%"), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="重設 100%", style=discord.ButtonStyle.secondary, row=2)
     async def volreset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -443,7 +443,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": "音量を 100% にリセットしました"
         }
         await self._safe_send(interaction, msgs.get(loc, "Volume reset."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
     @discord.ui.button(label="清空佇列", style=discord.ButtonStyle.secondary, row=2)
     async def clear_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -457,7 +457,7 @@ class PlayerControls(discord.ui.View):
             "ja_JP": f"キュー内の {count} 曲を消去しました。"
         }
         await self._safe_send(interaction, msgs.get(loc, "Cleared queue."), ephemeral=True)
-        await self.player.update_panel_inplace()
+        asyncio.create_task(self.player.update_panel_inplace())
 
 class QueuePaginator(discord.ui.View):
     def __init__(self, queue: List[Dict[str, Any]], current: Optional[Dict[str, Any]], page: int = 0, locale: str = "zh_TW"):

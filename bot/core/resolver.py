@@ -1036,6 +1036,11 @@ class UniversalResolver:
 
         try:
             if is_url:
+                if not re.search(r"[?&]list=", query):
+                    try:
+                        asyncio.create_task(self.get_live_stream(query))
+                    except Exception:
+                        pass
                 info = None
                 try:
                     info = await loop.run_in_executor(self.executor, lambda: _extract(query))
@@ -1091,6 +1096,10 @@ class UniversalResolver:
                 chosen = ranked[0]
                 vid_id = chosen.get("id", "")
                 final_target = f"https://www.youtube.com/watch?v={vid_id}" if re.match(r"^[0-9A-Za-z_-]{11}$", str(vid_id)) else (chosen.get("webpage_url") or chosen.get("url") or query)
+                try:
+                    asyncio.create_task(self.get_live_stream(final_target))
+                except Exception:
+                    pass
                 return [{
                     "title": chosen.get("title", query),
                     "search_query": final_target,
