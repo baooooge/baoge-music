@@ -951,19 +951,19 @@ class UniversalResolver:
 
         remix_keywords = [
             "remix", "mix", "8d", "slowed", "reverb", "speed up", "sped up",
-            "nightcore", "mashup", "dj", "bass boosted", "trap", "lofi", "lo-fi"
+            "nightcore", "mashup", "dj", "bass boosted", "trap", "lofi", "lo-fi", "edit"
         ]
         for rk in remix_keywords:
             if rk in (t + " " + u) and rk not in q:
-                score -= 6000
+                score -= 50000
 
         cover_keywords = [
             "cover", "guitar cover", "piano cover", "drum cover", "dance cover",
-            "acoustic cover", "karaoke"
+            "acoustic cover", "karaoke", "flip"
         ]
         for ck in cover_keywords:
             if ck in (t + " " + u) and ck not in q:
-                score -= 6000
+                score -= 50000
 
         spam_keywords = [
             "reaction", "instrumental", "bgm", "podcast", "review",
@@ -973,12 +973,12 @@ class UniversalResolver:
             "\u7d14\u4eab", "\u7d14\u97f3\u6a02", "\u4f34\u594f", "\u5408\u96c6",
             "\u76e4\u9ede", "\u7cbe\u9078", "\u7ffb\u5531", "\u6539\u7de8",
             "\u65e5\u63a8", "\u6b4c\u55ae", "\u6b4c\u5355", "\u7cbe\u9009", "\u5408\u8f91",
-            "\u65e0\u635f", "\u79c1\u85cf", "\u5408\u96c6", "lawpj"
+            "\u65e0\u635f", "\u79c1\u85cf", "\u5408\u96c6", "lawpj", "1 hour", "10 hours", "loop"
         ]
         for sk in spam_keywords:
             norm_sk = self._normalize_cjk(sk)
             if norm_sk in (t + " " + u) and norm_sk not in q:
-                score -= 8000
+                score -= 50000
 
         live_keywords = ["live", "concert", "fancam"]
         for lk in live_keywords:
@@ -1340,7 +1340,8 @@ class UniversalResolver:
                             x.get("title", ""),
                             x.get("uploader", ""),
                             query=clean_target,
-                            duration=int(x.get("duration") or 0)
+                            duration=int(x.get("duration") or 0),
+                            view_count=int(x.get("view_count") or 0)
                         ),
                         reverse=True
                     )
