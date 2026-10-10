@@ -1459,8 +1459,8 @@ class UniversalResolver:
 
             hdr_lines = [f"User-Agent: {user_agent}"]
             if is_bili:
-                referer = http_headers.get("Referer") or (clean_target if clean_target.startswith("http") else "https://www.bilibili.com/")
-                hdr_lines.append(f"Referer: {referer}")
+                bili_ref = f"https://www.bilibili.com/video/{video_id}/" if (video_id and str(video_id).startswith("BV")) else (clean_target if clean_target.startswith("http") else "https://www.bilibili.com/")
+                hdr_lines.append(f"Referer: {bili_ref}")
                 hdr_lines.append("Origin: https://www.bilibili.com")
             else:
                 if "referer" in [k.lower() for k in http_headers]:
@@ -1564,17 +1564,68 @@ class UniversalResolver:
             "Referer": "https://www.bilibili.com/",
             "Origin": "https://www.bilibili.com"
         }
+
+        blacklist = [
+            "cover", "翻唱", "翻弹", "翻彈", "demo", "remix", "二创", "二創",
+            "剪辑", "剪輯", "反应", "反應", "reaction", "吉他", "钢琴", "鋼琴",
+            "伴奏", "纯音", "自制", "自製", "手书", "手書", "mad", "amv", "mmd",
+            "舞蹈", "教学", "教學", "游戏", "遊戲", "解说", "解說", "鬼畜", "试听",
+            "試聽", "片段", "卡拉ok", "karaoke"
+        ]
+
+        q_lower = title.lower()
+        q_words = [w for w in re.split(r'[\s\-_|/]+', q_lower) if len(w) > 0]
+
         try:
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
-                    text = await resp.text()
-                    bv_match = re.search(r'bvid[:=]["\']?(BV[0-9A-Za-z]{10})', text)
-                    if not bv_match:
-                        bv_match = re.search(r'/video/(BV[0-9A-Za-z]{10})', text)
-                    if bv_match:
-                        bvid = bv_match.group(1)
-                        target_url = f"https://www.bilibili.com/video/{bvid}/"
-                        return await self.get_live_stream(target_url)
+                    html = await resp.text()
+                    cards = re.findall(r'<div class="bili-video-card__wrap"[^>]*>(.*?)</div>\s*</div>\s*</div>', html, re.DOTALL)
+                    candidates = []
+                    for c in cards:
+                        bv_m = re.search(r'/video/(BV[0-9A-Za-z]{10})', c)
+                        t_m = re.search(r'alt=[\'"]([^\'"]+)[\'"]', c) or re.search(r'<h3[^>]*title=[\'"]([^\'"]+)[\'"]', c)
+                        dur_m = re.search(r'class="bili-video-card__stats__duration"[^>]*>([^<]+)</span>', c)
+                        if not bv_m or not t_m:
+                            continue
+                        bvid = bv_m.group(1)
+                        clean_t = re.sub(r'<[^>]+>', '', t_m.group(1)).strip()
+                        t_lower = clean_t.lower()
+
+                        if any(bad in t_lower and bad not in q_lower for bad in blacklist):
+                            continue
+
+                        if q_words:
+                            matched = sum(1 for w in q_words if w in t_lower)
+                            if matched < min(len(q_words), 2):
+                                continue
+
+                        dur_str = dur_m.group(1) if dur_m else "0:00"
+                        dur_parts = dur_str.split(":")
+                        dur_sec = 0
+                        if len(dur_parts) == 2:
+                            dur_sec = int(dur_parts[0]) * 60 + int(dur_parts[1])
+                        elif len(dur_parts) == 3:
+                            dur_sec = int(dur_parts[0]) * 3600 + int(dur_parts[1]) * 60 + int(dur_parts[2])
+
+                        if dur_sec > 0 and (dur_sec < 45 or dur_sec > 900):
+                            continue
+
+                        score = 0
+                        if any(k in t_lower for k in ["official", "music video", "mv", "原版", "正版"]):
+                            score += 5000
+                        if "live" in t_lower:
+                            score -= 500
+
+                        candidates.append((score, bvid))
+
+                    if candidates:
+                        candidates.sort(key=lambda x: x[0], reverse=True)
+                        for _, best_bvid in candidates[:3]:
+                            target_url = f"https://www.bilibili.com/video/{best_bvid}/"
+                            res = await self.get_live_stream(target_url)
+                            if res and res.get("stream_url"):
+                                return res
         except Exception:
             pass
         return None
@@ -1630,6 +1681,10 @@ class UniversalResolver:
         sc_stream = await self._search_soundcloud_stream(query)
         if sc_stream and sc_stream.get("stream_url"):
             return sc_stream
+
+        bili_stream = await self._search_bilibili_stream(query)
+        if bili_stream and bili_stream.get("stream_url"):
+            return bili_stream
 
         return None
 
