@@ -2,7 +2,7 @@
 
 A production-grade, high-fidelity Discord music bot built for studio-grade audio quality, multi-platform streaming, and intelligent autoplay.
 
-Official Site: [https://bybaoge.com](https://bybaoge.com)
+Official Site: [https://musicbot.bybaoge.com](https://musicbot.bybaoge.com)
 Discord Community: [https://discord.gg/92BB9zGRmS](https://discord.gg/92BB9zGRmS)
 License: AGPL-3.0
 
@@ -61,7 +61,7 @@ BaoGe Music Bot is a self-hosted Discord music bot engineered for stability, mul
 ### License & Attribution
 Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 * Original Author: BaoGe
-* Website: https://bybaoge.com
+* Website: https://musicbot.bybaoge.com
 * Community: https://discord.gg/92BB9zGRmS
 Under AGPL-3.0 Section 7, all distributions, forks, and deployments must retain the original author credits, website links, and community links.
 
@@ -113,7 +113,7 @@ BaoGe Music Bot 是一款專為錄音室級高保真音質設計的 Discord 音�
 ### 授權協議與署名規範
 本專案採用 GNU Affero General Public License v3.0 (AGPL-3.0) 授權。
 * 原創作者：BaoGe
-* 官方網站：https://bybaoge.com
+* 官方網站：https://musicbot.bybaoge.com
 * 官方社群：https://discord.gg/92BB9zGRmS
 依據 AGPL-3.0 第 7 條規定，任何修改、衍生版本或伺服器託管均必須完整保留原作者署名、官方網站與社群連結。
 
@@ -165,7 +165,7 @@ BaoGe Music Bot 是一款专为录音室级高保真音质设计的 Discord 音�
 ### 开源协议与署名规范
 本项目采用 GNU Affero General Public License v3.0 (AGPL-3.0) 授权。
 * 原创作者：BaoGe
-* 官方网站：[https://bybaoge.com](https://bybaoge.com)
+* 官方网站：[https://musicbot.bybaoge.com](https://musicbot.bybaoge.com)
 * 官方社群：[https://discord.gg/92BB9zGRmS](https://discord.gg/92BB9zGRmS)
 依据 AGPL-3.0 第 7 条规定，任何修改、衍生版本或服务器托管均必须完整保留原作者署名、官方网站与社群链接。
 
@@ -217,7 +217,7 @@ BaoGe Music Bot は、スタジオ品質の高音質再生、マルチプラッ�
 ### ライセンスと帰属表示
 本プロジェクトは GNU Affero General Public License v3.0 (AGPL-3.0) に基づいて公開されています。
 * 原作者: BaoGe
-* 公式サイト: [https://bybaoge.com](https://bybaoge.com)
+* 公式サイト: [https://musicbot.bybaoge.com](https://musicbot.bybaoge.com)
 * 公式コミュニティ: [https://discord.gg/92BB9zGRmS](https://discord.gg/92BB9zGRmS)
 AGPL-3.0 第 7 条に基づき、本ソフトウェアの改変、再配布、およびホスティングにおいては、原作者の帰属表示、公式サイト、およびコミュニティリンクの維持が義務付けられています。
 
