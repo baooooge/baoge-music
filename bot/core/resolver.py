@@ -55,12 +55,12 @@ class UniversalResolver:
 
         youtube_extractor_args = {
             "youtube": {
-                "player_client": ["android", "ios", "mweb", "web", "tv_embedded"]
+                "player_client": ["android", "web"]
             }
         }
 
         self.ydl_opts_meta = {
-            "format": "bestaudio/ba/b/best",
+            "format": "bestaudio/ba/best[height<=720]/b",
             "extract_flat": True,
             "skip_download": True,
             "quiet": True,
@@ -80,7 +80,7 @@ class UniversalResolver:
             self.ydl_opts_meta["cookiefile"] = cookie_path
 
         self.ydl_opts_stream = {
-            "format": "bestaudio/ba/b/best",
+            "format": "bestaudio/ba/best[height<=720]/b",
             "noplaylist": True,
             "skip_download": True,
             "quiet": True,
@@ -1051,8 +1051,8 @@ class UniversalResolver:
                         except Exception:
                             pass
             else:
-                opts["playlistend"] = 5
-                search_target = f"ytsearch5:{query}"
+                opts["playlistend"] = 3
+                search_target = f"ytsearch3:{query}"
                 info = await loop.run_in_executor(self.executor, lambda: _extract(search_target))
 
             if not info:
