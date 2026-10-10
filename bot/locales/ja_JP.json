@@ -55,5 +55,13 @@
   "ADDED_BATCH": "**{count}** 曲をキューに一括追加しました！",
   "LANG_SWITCHED": "サーバー言語が設定されました：**日本語**",
   "AUTH_REQUIRED_TITLE": "公式 Discord サーバーに参加してください",
-  "AUTH_REQUIRED_DESC": "利用者の急増に伴い、バグ修正やアップデートのためのサーバー再起動が頻繁に行われます。\n\n再起動やメンテナンスの通知をリアルタイムで受け取るため、ボットを利用する前に公式 Discord サーバーへの参加が必要です。\n\n**[公式 Discord に参加]({invite_url})**\n**[ボット公式サイト]({website_url})**\n**[ご支援・寄付]({donate_url})**\n\n参加後、すぐに曲の再生が可能になります。"
+  "AUTH_REQUIRED_DESC": "利用者の急増に伴い、バグ修正やアップデートのためのサーバー再起動が頻繁に行われます。\n\n再起動やメンテナンスの通知をリアルタイムで受け取るため、ボットを利用する前に公式 Discord サーバーへの参加が必要です。\n\n**[公式 Discord に参加]({invite_url})**\n**[ボット公式サイト]({website_url})**\n**[ご支援・寄付]({donate_url})**\n\n参加後、すぐに曲の再生が可能になります。",
+  "PATREON_TITLE": "Patreon スポンサー限定機能",
+  "PATREON_247_DESC": "24時間常駐（24/7）再生モードは Patreon スポンサー限定です。",
+  "PATREON_EQ_DESC": "DSP イコライザープリセットは Patreon スポンサー限定です。",
+  "PATREON_BTN_LABEL": "Patreon でアンロック",
+  "RATE_LIMITED": "操作が頻繁すぎます。あと {time} 秒お待ちください。",
+  "SERVER_QUEUE_FULL": "サーバーのキュー上限に達しました（最大 100 曲）。",
+  "USER_QUOTA_REACHED": "あなたのキュー登録数が上限に達しました（最大 {limit} 曲）。",
+  "INVALID_URL_DOMAIN": "この URL ドメインは許可されたホワイトリストに含まれていません。"
 }

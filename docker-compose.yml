@@ -16,3 +16,20 @@ services:
     environment:
       - TZ=Asia/Taipei
       - PYTHONUNBUFFERED=1
+      - LAVALINK_ENABLED=false
+      - LAVALINK_URI=http://lavalink:2333
+      - LAVALINK_PASSWORD=youshallnotpass
+
+  # Optional Lavalink audio node (Default disabled to save 1-2GB RAM).
+  # Uncomment the block below and set LAVALINK_ENABLED=true if an external audio node is needed.
+  # lavalink:
+  #   image: ghcr.io/lavalink-devs/lavalink:4.0.8
+  #   container_name: baoge-lavalink
+  #   restart: always
+  #   environment:
+  #     - _JAVA_OPTIONS=-Xms1024m -Xmx2048m
+  #   volumes:
+  #     - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+  #     - ./data/lavalink/logs:/opt/Lavalink/logs
+  #   ports:
+  #     - "2333:2333"

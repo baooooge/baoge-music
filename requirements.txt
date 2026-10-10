@@ -6,4 +6,5 @@ beautifulsoup4
 aiohttp
 requests
 pynacl
+wavelink==3.4.1
 uvloop; sys_platform != "win32"

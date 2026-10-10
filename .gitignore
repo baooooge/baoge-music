@@ -33,3 +33,6 @@ logs/
 bot/.commands_hash
 .DS_Store
 Thumbs.db
+
+lavalink/application.yml
+!lavalink/application.example.yml

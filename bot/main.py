@@ -11,6 +11,10 @@ from discord import app_commands
 from discord.ext import commands
 from core.resolver import UniversalResolver
 from core.player import GuildPlayer, QueuePaginator, EQ_LABELS
+from core.security import SecurityGateway
+from core.entitlement import EntitlementManager
+from core.voice_reaper import VoiceReaper
+from core.wavelink_node import WavelinkManager
 
 if os.name != "nt":
     try:
@@ -28,6 +32,7 @@ ALERT_CHANNEL_ID = int(os.getenv("ALERT_CHANNEL_ID", 1473748279627092094))
 SUPPORT_INVITE_URL = os.getenv("SUPPORT_INVITE_URL", "https://discord.com/invite/92BB9zGRmS")
 OFFICIAL_WEBSITE_URL = os.getenv("OFFICIAL_WEBSITE_URL", "https://musicbot.bybaoge.com/")
 DONATE_URL = os.getenv("DONATE_URL", "https://donate.bybaoge.com/")
+PATREON_URL = os.getenv("PATREON_URL", "https://patreon.bybaoge.com/")
 
 _MEMBERSHIP_CACHE = {}
 _MEMBERSHIP_LOCK: Optional[asyncio.Lock] = None
@@ -154,6 +159,10 @@ class MusicBot(commands.Bot):
         self._last_presence_text = ""
         self._last_presence_time = 0.0
         self._last_alert_time = 0.0
+        self.security_gateway = SecurityGateway()
+        self.entitlement_manager = EntitlementManager(self)
+        self.voice_reaper = VoiceReaper(is_247_predicate=lambda gid: not self.get_player(gid).auto_disconnect)
+        self.wavelink_manager = WavelinkManager(self)
         self._setup_resolver_alert(self.resolver)
 
     def _setup_resolver_alert(self, resolver_instance):
@@ -218,11 +227,19 @@ class MusicBot(commands.Bot):
                         continue
                     fp = os.path.join(d, f)
                     if os.path.isfile(fp):
-                        mtimes[fp] = os.path.getmtime(fp)
+                        try:
+                            mtimes[fp] = os.path.getmtime(fp)
+                        except Exception:
+                            pass
 
+        last_reload_time = time.time()
         while not self.is_closed():
-            await asyncio.sleep(3)
-            changed = False
+            await asyncio.sleep(5)
+            now = time.time()
+            if now - last_reload_time < 30.0:
+                continue
+
+            changed_core = False
             for d in watch_dirs:
                 if os.path.exists(d):
                     for f in os.listdir(d):
@@ -230,12 +247,18 @@ class MusicBot(commands.Bot):
                             continue
                         fp = os.path.join(d, f)
                         if os.path.isfile(fp):
-                            current_mtime = os.path.getmtime(fp)
-                            if fp in mtimes and current_mtime > mtimes[fp]:
-                                changed = True
-                            mtimes[fp] = current_mtime
-            if changed:
-                print("Detected file changes. Auto hot-reloading...")
+                            try:
+                                current_mtime = os.path.getmtime(fp)
+                                prev_mtime = mtimes.get(fp)
+                                if prev_mtime is not None and (current_mtime - prev_mtime > 3.0):
+                                    changed_core = True
+                                mtimes[fp] = current_mtime
+                            except Exception:
+                                pass
+
+            if changed_core:
+                last_reload_time = now
+                print("Detected core file changes. Auto hot-reloading...")
                 success, msg = await perform_hot_reload(self)
                 print(f"Auto hot-reload result: {msg}")
 
@@ -261,6 +284,8 @@ class MusicBot(commands.Bot):
                 print(f"Command sync failed: {e}")
         else:
             print("Commands up to date. Skipped sync to prevent Gateway rate-limits.")
+        await self.wavelink_manager.connect_node()
+        self.entitlement_manager.start_reconciliation()
 
     def get_guild_locale(self, guild: Optional[discord.Guild]) -> str:
         if not guild:
@@ -432,10 +457,22 @@ class MusicBot(commands.Bot):
     async def on_member_remove(self, member: discord.Member):
         if member.guild.id == SUPPORT_GUILD_ID:
             _MEMBERSHIP_CACHE.pop(member.id, None)
+            if hasattr(self, "entitlement_manager"):
+                await self.entitlement_manager.handle_member_remove(member)
 
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if after.guild.id == SUPPORT_GUILD_ID:
             _MEMBERSHIP_CACHE[after.id] = (time.time(), True)
+            if hasattr(self, "entitlement_manager"):
+                await self.entitlement_manager.handle_member_update(before, after)
+
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        async def _disconnect_cb(guild: discord.Guild):
+            p = self.players.get(guild.id)
+            if p and p.voice_client:
+                p.stop_current()
+                await p.voice_client.disconnect(force=True)
+        await self.voice_reaper.handle_voice_state_update(member, before, after, _disconnect_cb)
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
@@ -443,6 +480,20 @@ class MusicBot(commands.Bot):
         return self.players[guild_id]
 
 bot = MusicBot()
+
+@bot.tree.interaction_check
+async def global_command_rate_limit(interaction: discord.Interaction) -> bool:
+    if interaction.type != discord.InteractionType.application_command:
+        return True
+    ok, remaining = bot.security_gateway.enforce_cooldown(
+        interaction.user.id, action_type="command", window=2.0
+    )
+    if not ok:
+        loc = bot.get_guild_locale(interaction.guild)
+        msg = bot.i18n.get("RATE_LIMITED", loc, time=f"{remaining:.1f}")
+        await interaction.response.send_message(msg, ephemeral=True)
+        return False
+    return True
 
 @bot.command(name="sync")
 @commands.is_owner()
@@ -462,6 +513,19 @@ async def play_autocomplete(interaction: discord.Interaction, current: str) -> l
 async def play(interaction: discord.Interaction, search: str):
     await interaction.response.defer()
     loc = bot.get_guild_locale(interaction.guild)
+
+    cooldown_ok, remaining = bot.security_gateway.enforce_cooldown(interaction.user.id, action_type="play", window=2.5)
+    if not cooldown_ok:
+        return await interaction.followup.send(bot.i18n.get("RATE_LIMITED", loc, time=f"{remaining:.1f}"), ephemeral=True)
+
+    search = bot.security_gateway.sanitize_and_truncate(search)
+    if not search:
+        return await interaction.followup.send(bot.i18n.get("NO_AUDIO_FOUND", loc), ephemeral=True)
+
+    if bot.security_gateway.is_url(search):
+        is_allowed, _ = bot.security_gateway.validate_url(search)
+        if not is_allowed:
+            return await interaction.followup.send(bot.i18n.get("INVALID_URL_DOMAIN", loc), ephemeral=True)
 
     is_member = await check_official_guild_membership(bot, interaction.user.id)
     if not is_member:
@@ -483,25 +547,44 @@ async def play(interaction: discord.Interaction, search: str):
     player = bot.get_player(interaction.guild_id)
     player.current_text_channel = interaction.channel
 
-    async with player.lock:
-        try:
+    is_patron = await bot.entitlement_manager.is_patron(interaction.user.id)
+    user_tracks = sum(1 for t in player.queue if t.get("requester_id") == interaction.user.id)
+    quota_ok, quota_err = bot.security_gateway.check_queue_quota(len(player.queue), user_tracks, is_patron)
+    if not quota_ok:
+        if quota_err == "GUILD_QUEUE_FULL":
+            return await interaction.followup.send(bot.i18n.get("SERVER_QUEUE_FULL", loc), ephemeral=True)
+        limit_val = 200 if is_patron else 100
+        return await interaction.followup.send(bot.i18n.get("USER_QUOTA_REACHED", loc, limit=limit_val), ephemeral=True)
+
+    async def _ensure_voice_connection():
+        async with player.lock:
             if not player.voice_client or not player.voice_client.is_connected():
                 player.voice_client = await voice_channel.connect(self_deaf=True)
             elif player.voice_client.channel != voice_channel:
                 await player.voice_client.move_to(voice_channel)
-        except Exception as e:
-            return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=e))
 
-    tracks = await bot.resolver.resolve_metadata_batch(search)
+    voice_task = asyncio.create_task(_ensure_voice_connection())
+    resolve_task = asyncio.create_task(bot.resolver.resolve_metadata_batch(search))
+
+    try:
+        await voice_task
+    except Exception as e:
+        resolve_task.cancel()
+        return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=e))
+
+    tracks = await resolve_task
     if not tracks:
         return await interaction.followup.send(bot.i18n.get("NO_AUDIO_FOUND", loc))
 
     async with player.lock:
+        is_playing = (player.current is not None or bool(player.queue))
         for track in tracks:
             track["requester_id"] = interaction.user.id
             track["requester_name"] = interaction.user.display_name
             player.queue.append(track)
         player.ensure_audio_task()
+        if is_playing and player.queue:
+            asyncio.create_task(player._preload_upcoming_track(player.queue[0]))
 
     if len(tracks) == 1:
         await interaction.followup.send(bot.i18n.get("ADDED_SINGLE", loc, title=tracks[0]['title']))
@@ -570,10 +653,24 @@ async def seek(interaction: discord.Interaction, timestamp: str):
 
 @bot.tree.command(name="autoleave", description="無人時自動離線開關 / Toggle auto-disconnect / 自動退出切り替え")
 async def autoleave(interaction: discord.Interaction):
+    loc = bot.get_guild_locale(interaction.guild)
     player = bot.get_player(interaction.guild_id)
+    if player.auto_disconnect:
+        is_patron = await bot.entitlement_manager.can_use_247(interaction.user.id)
+        if not is_patron:
+            embed = discord.Embed(
+                title=bot.i18n.get("PATREON_TITLE", loc),
+                description=bot.i18n.get("PATREON_247_DESC", loc),
+                color=0xf39c12
+            )
+            view = discord.ui.View()
+            view.add_item(discord.ui.Button(label=bot.i18n.get("PATREON_BTN_LABEL", loc), url=PATREON_URL, style=discord.ButtonStyle.link))
+            return await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     player.auto_disconnect = not player.auto_disconnect
-    status = "ON" if player.auto_disconnect else "OFF (24/7)"
-    await interaction.response.send_message(f"Auto-leave: {status}")
+    player.mode_247_enabled_by = interaction.user.id if not player.auto_disconnect else None
+    status = bot.i18n.get("STATUS_ON", loc) if player.auto_disconnect else bot.i18n.get("STATUS_247", loc)
+    auto_leave_label = bot.i18n.get("PANEL_AUTODISCONNECT", loc)
+    await interaction.response.send_message(f"{auto_leave_label}: {status}")
     await player.update_panel_inplace()
 
 @bot.tree.command(name="skip", description="跳過當前歌曲 / Skip track / 曲をスキップ")
@@ -667,8 +764,21 @@ async def volume(interaction: discord.Interaction, level: int):
     app_commands.Choice(name="高音通透 / Treble Boost", value="treble")
 ])
 async def equalizer(interaction: discord.Interaction, preset: app_commands.Choice[str]):
+    loc = bot.get_guild_locale(interaction.guild)
+    if preset.value != "flat":
+        is_patron = await bot.entitlement_manager.can_use_equalizer(interaction.user.id)
+        if not is_patron:
+            embed = discord.Embed(
+                title=bot.i18n.get("PATREON_TITLE", loc),
+                description=bot.i18n.get("PATREON_EQ_DESC", loc),
+                color=0xf39c12
+            )
+            view = discord.ui.View()
+            view.add_item(discord.ui.Button(label=bot.i18n.get("PATREON_BTN_LABEL", loc), url=PATREON_URL, style=discord.ButtonStyle.link))
+            return await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     player = bot.get_player(interaction.guild_id)
     await player.set_eq(preset.value)
+    player.eq_enabled_by = interaction.user.id if preset.value != "flat" else None
     await interaction.response.send_message(preset.name)
     await player.update_panel_inplace()
 

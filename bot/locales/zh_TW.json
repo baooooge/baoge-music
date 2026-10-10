@@ -55,5 +55,13 @@
   "ADDED_BATCH": "已批量加入 **{count}** 首曲目至佇列！",
   "LANG_SWITCHED": "伺服器語言已切換為：**繁體中文**",
   "AUTH_REQUIRED_TITLE": "請先加入官方 Discord 社群",
-  "AUTH_REQUIRED_DESC": "由於短時間內使用量暴增，我們正在加緊修復近期回報的問題與 Bug，伺服器近期將會頻繁重啟與部署更新。\n\n為了確保您能第一時間接收重啟維護、Bug 修復進度及最新公告，使用音樂機器人前請務必加入官方 Discord 社群。\n\n**[點此加入官方 Discord]({invite_url})**\n**[前往機器人官方網站]({website_url})**\n**[贊助支持我們]({donate_url})**\n\n加入後即可立即正常使用點歌功能。"
+  "AUTH_REQUIRED_DESC": "由於短時間內使用量暴增，我們正在加緊修復近期回報的問題與 Bug，伺服器近期將會頻繁重啟與部署更新。\n\n為了確保您能第一時間接收重啟維護、Bug 修復進度及最新公告，使用音樂機器人前請務必加入官方 Discord 社群。\n\n**[點此加入官方 Discord]({invite_url})**\n**[前往機器人官方網站]({website_url})**\n**[贊助支持我們]({donate_url})**\n\n加入後即可立即正常使用點歌功能。",
+  "PATREON_TITLE": "Patreon 贊助者專屬特權",
+  "PATREON_247_DESC": "24/7 常駐掛台模式為 Patreon 贊助者專屬功能。",
+  "PATREON_EQ_DESC": "DSP 硬體等化器效果為 Patreon 贊助者專屬功能。",
+  "PATREON_BTN_LABEL": "解鎖 Patreon 特權",
+  "RATE_LIMITED": "操作過於頻繁，請稍候 {time} 秒。",
+  "SERVER_QUEUE_FULL": "伺服器隊列已達上限（最多 100 首）。",
+  "USER_QUOTA_REACHED": "您在隊列中的曲目已達個人配額上限（最多 {limit} 首）。",
+  "INVALID_URL_DOMAIN": "此網址網域不符合安全來源白名單政策。"
 }

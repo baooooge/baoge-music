@@ -49,7 +49,8 @@ EQ_LABELS = {
 DEFAULT_BEFORE_OPTS = (
     "-loglevel fatal -nostats -reconnect 1 -reconnect_streamed 1 "
     "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-    "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 128k -analyzeduration 0"
+    "-reconnect_at_eof 1 -reconnect_delay_max 5 -probesize 32k -analyzeduration 0 "
+    "-fflags nobuffer+fastseek -flush_packets 1"
 )
 
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
@@ -162,7 +163,25 @@ class EQSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
+        if selected != "flat" and hasattr(self.player.bot, "entitlement_manager"):
+            is_patron = await self.player.bot.entitlement_manager.can_use_equalizer(interaction.user.id)
+            if not is_patron:
+                loc = self.player.locale
+                patreon_url = os.getenv("PATREON_URL", "https://patreon.bybaoge.com/")
+                embed = discord.Embed(
+                    title=self.player.bot.i18n.get("PATREON_TITLE", loc),
+                    description=self.player.bot.i18n.get("PATREON_EQ_DESC", loc),
+                    color=0xf39c12
+                )
+                view = discord.ui.View()
+                view.add_item(discord.ui.Button(label=self.player.bot.i18n.get("PATREON_BTN_LABEL", loc), url=patreon_url, style=discord.ButtonStyle.link))
+                return await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
         await self.player.set_eq(selected)
+        if selected != "flat":
+            self.player.eq_enabled_by = interaction.user.id
+        else:
+            self.player.eq_enabled_by = None
         loc = self.player.locale
         label = EQ_LABELS.get(loc, EQ_LABELS["zh_TW"])[selected]
         msgs = {
@@ -196,6 +215,19 @@ class PlayerControls(discord.ui.View):
         self.clear_btn.label = i18n.get("BTN_CLEAR", loc)
 
         self.add_item(EQSelect(player))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if hasattr(self.player.bot, "security_gateway"):
+            ok, remaining = self.player.bot.security_gateway.enforce_cooldown(
+                interaction.user.id, action_type="button", window=1.2
+            )
+            if not ok:
+                loc = self.player.locale
+                i18n = self.player.bot.i18n
+                msg = i18n.get("RATE_LIMITED", loc, time=f"{remaining:.1f}")
+                await interaction.response.send_message(msg, ephemeral=True)
+                return False
+        return True
 
     @discord.ui.button(label="上一首", style=discord.ButtonStyle.secondary, row=0)
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -340,7 +372,13 @@ class PlayerControls(discord.ui.View):
             "en_US": "Stopped playback and disconnected.",
             "ja_JP": "再生を停止し、ボイスチャンネルから退出しました。"
         }
-        await interaction.response.send_message(msgs.get(loc, "Stopped."), ephemeral=True)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msgs.get(loc, "Stopped."), ephemeral=True)
+            else:
+                await interaction.followup.send(msgs.get(loc, "Stopped."), ephemeral=True)
+        except (discord.NotFound, discord.HTTPException):
+            pass
         vc = self.player.voice_client
         if vc:
             await vc.disconnect()
@@ -426,6 +464,18 @@ class QueuePaginator(discord.ui.View):
         self.prev_btn.disabled = self.page == 0
         self.next_btn.disabled = self.page >= self.max_page - 1
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        client = interaction.client
+        if hasattr(client, "security_gateway"):
+            ok, remaining = client.security_gateway.enforce_cooldown(
+                interaction.user.id, action_type="button", window=0.8
+            )
+            if not ok:
+                msg = client.i18n.get("RATE_LIMITED", self.locale, time=f"{remaining:.1f}") if hasattr(client, "i18n") else f"Please wait {remaining:.1f}s."
+                await interaction.response.send_message(msg, ephemeral=True)
+                return False
+        return True
+
     def make_embed(self) -> discord.Embed:
         titles = {"zh_TW": "當前播放隊列", "zh_CN": "当前播放队列", "en_US": "Playback Queue", "ja_JP": "現在のキュー"}
         embed = discord.Embed(title=titles.get(self.locale, "Playback Queue"), color=0x9b59b6)
@@ -495,7 +545,9 @@ class GuildPlayer:
         self.pause_time = 0.0
         self.is_restarting_stream = False
         self.is_manual_interruption = False
-        self.auto_disconnect = False
+        self.auto_disconnect = True
+        self.mode_247_enabled_by: Optional[int] = None
+        self.eq_enabled_by: Optional[int] = None
         self.skip_votes: Set[int] = set()
         self.last_panel_update = 0.0
         try:
@@ -805,6 +857,10 @@ class GuildPlayer:
                     if not is_third_party:
                         track_stream = await self.resolver.get_live_stream(next_item.get("title", next_item["search_query"]))
                     if not track_stream or not track_stream.get("stream_url"):
+                        track_title = next_item.get("title") or next_item.get("search_query", "")
+                        track_stream = await self.resolver.get_fallback_stream(track_title)
+
+                    if not track_stream or not track_stream.get("stream_url"):
                         self.current = None
                         self.current_meta = None
                         if next_item.get("id"):
@@ -838,7 +894,7 @@ class GuildPlayer:
                 self.is_manual_interruption = False
                 play_target = self.current["stream_url"]
                 before_opts = self.current.get("before_options", DEFAULT_BEFORE_OPTS)
-                start_off = next_item.get("start_offset", 0.0)
+                start_off = float(self.current.get("start_offset") or next_item.get("start_offset") or 0.0)
 
                 if not self.current.get("is_live", False) and hasattr(self.resolver, "preload_track_audio"):
                     cached_file = await self.resolver.preload_track_audio(
@@ -861,7 +917,7 @@ class GuildPlayer:
                 audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
 
                 if self.voice_client and self.voice_client.is_connected():
-                    self.track_start_time = time.time()
+                    self.track_start_time = time.time() - start_off
                     self.voice_client.play(audio_source, after=self._after_playback)
                     await self.post_new_panel()
                     self.start_ticker()
@@ -903,13 +959,13 @@ class GuildPlayer:
 
     async def _preload_upcoming_track(self, next_track: Dict[str, Any]):
         try:
-            if not next_track or not hasattr(self.resolver, "preload_track_audio"):
+            if not next_track:
                 return
             sq = next_track.get("search_query", "")
             if not sq:
                 return
             stream_info = await self.resolver.get_live_stream(sq)
-            if stream_info and stream_info.get("stream_url"):
+            if stream_info and stream_info.get("stream_url") and hasattr(self.resolver, "preload_track_audio"):
                 t_id = stream_info.get("id") or next_track.get("id") or str(abs(hash(stream_info["stream_url"])))
                 await self.resolver.preload_track_audio(
                     stream_info["stream_url"],

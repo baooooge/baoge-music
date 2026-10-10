@@ -55,5 +55,13 @@
   "ADDED_BATCH": "Added **{count}** tracks to queue!",
   "LANG_SWITCHED": "Server language has been set to: **English (US)**",
   "AUTH_REQUIRED_TITLE": "Please Join Official Discord Community",
-  "AUTH_REQUIRED_DESC": "Due to a surge in usage, our team is actively patching reported bugs. Frequent service restarts and maintenance will occur.\n\nTo stay updated with restart notifications and bug fixes, you must join our official Discord server before using the bot.\n\n**[Join Official Discord]({invite_url})**\n**[Official Website]({website_url})**\n**[Donate & Support]({donate_url})**\n\nYou will be able to play music immediately after joining."
+  "AUTH_REQUIRED_DESC": "Due to a surge in usage, our team is actively patching reported bugs. Frequent service restarts and maintenance will occur.\n\nTo stay updated with restart notifications and bug fixes, you must join our official Discord server before using the bot.\n\n**[Join Official Discord]({invite_url})**\n**[Official Website]({website_url})**\n**[Donate & Support]({donate_url})**\n\nYou will be able to play music immediately after joining.",
+  "PATREON_TITLE": "Patreon Supporter Feature",
+  "PATREON_247_DESC": "24/7 playback mode is exclusively available to Patreon supporters.",
+  "PATREON_EQ_DESC": "DSP Equalizer presets are exclusively available to Patreon supporters.",
+  "PATREON_BTN_LABEL": "Unlock with Patreon",
+  "RATE_LIMITED": "Action is rate limited. Please wait {time}s.",
+  "SERVER_QUEUE_FULL": "Server queue limit reached (maximum 100 tracks).",
+  "USER_QUOTA_REACHED": "Your queued tracks have reached personal quota (maximum {limit} tracks).",
+  "INVALID_URL_DOMAIN": "This URL domain is not in the allowed whitelist."
 }
