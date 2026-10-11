@@ -496,6 +496,7 @@ class MusicBot(commands.Bot):
             if p and p.voice_client:
                 p.stop_current()
                 await p.voice_client.disconnect(force=True)
+                p.voice_client = None
         await self.voice_reaper.handle_voice_state_update(member, before, after, _disconnect_cb)
 
     def get_player(self, guild_id: int) -> GuildPlayer:
@@ -577,6 +578,16 @@ async def play(interaction: discord.Interaction, search: str):
         return await interaction.followup.send(bot.i18n.get("JOIN_VOICE_FIRST", loc))
 
     voice_channel = interaction.user.voice.channel
+    guild_me = interaction.guild.me
+    if guild_me:
+        perms = voice_channel.permissions_for(guild_me)
+        if not perms.connect:
+            return await interaction.followup.send(bot.i18n.get("VOICE_NO_PERM_CONNECT", loc), ephemeral=True)
+        if not perms.speak:
+            return await interaction.followup.send(bot.i18n.get("VOICE_NO_PERM_SPEAK", loc), ephemeral=True)
+        if voice_channel.user_limit and len(voice_channel.members) >= voice_channel.user_limit and not perms.move_members:
+            return await interaction.followup.send(bot.i18n.get("VOICE_CHANNEL_FULL", loc), ephemeral=True)
+
     player = bot.get_player(interaction.guild_id)
     player.current_text_channel = interaction.channel
 
@@ -590,30 +601,43 @@ async def play(interaction: discord.Interaction, search: str):
         return await interaction.followup.send(bot.i18n.get("USER_QUOTA_REACHED", loc, limit=limit_val), ephemeral=True)
 
     async def _ensure_voice_connection():
-        async with player.lock:
+        vc = interaction.guild.voice_client
+        if vc and vc.is_connected():
+            player.voice_client = vc
+            if vc.channel != voice_channel:
+                await vc.move_to(voice_channel)
+            return
+
+        if vc and not vc.is_connected():
+            try:
+                await vc.disconnect(force=True)
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
+
+        try:
+            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
+        except discord.ClientException:
             vc = interaction.guild.voice_client
             if vc and vc.is_connected():
                 player.voice_client = vc
                 if vc.channel != voice_channel:
                     await vc.move_to(voice_channel)
-                return
-
-            if vc and not vc.is_connected():
-                try:
-                    await vc.disconnect(force=True)
-                except Exception:
-                    pass
-
-            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=15.0, reconnect=True)
+            else:
+                raise
 
     voice_task = asyncio.create_task(_ensure_voice_connection())
     resolve_task = asyncio.create_task(bot.resolver.resolve_metadata_batch(search))
 
     try:
         await voice_task
+    except (asyncio.TimeoutError, TimeoutError):
+        resolve_task.cancel()
+        return await interaction.followup.send(bot.i18n.get("VOICE_CONNECT_TIMEOUT", loc))
     except Exception as e:
         resolve_task.cancel()
-        return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=e))
+        err_msg = str(e).strip() or type(e).__name__
+        return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=err_msg))
 
     tracks = await resolve_task
     if not tracks:

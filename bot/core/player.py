@@ -404,6 +404,7 @@ class PlayerControls(discord.ui.View):
         vc = self.player.voice_client
         if vc:
             await vc.disconnect()
+            self.player.voice_client = None
 
     @discord.ui.button(label="音量 -10%", style=discord.ButtonStyle.secondary, row=2)
     async def voldown_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -815,6 +816,7 @@ class GuildPlayer:
                         idle_counter += 1
                         if idle_counter >= 30:
                             await self.voice_client.disconnect()
+                            self.voice_client = None
                             if self.current_text_channel:
                                 msgs = {
                                     "zh_TW": "語音頻道內無人收聽，已自動離開。",
@@ -873,6 +875,7 @@ class GuildPlayer:
                         idle_playback_counter += 1
                         if idle_playback_counter >= 90:
                             await self.voice_client.disconnect()
+                            self.voice_client = None
                             if self.current_text_channel:
                                 msgs = {
                                     "zh_TW": "播放已結束且閒置超過 3 分鐘，已自動離開語音頻道。",
