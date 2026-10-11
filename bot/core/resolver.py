@@ -1682,6 +1682,8 @@ class UniversalResolver:
                 fut.set_result(None)
             return None
         finally:
+            if not fut.done():
+                fut.set_result(None)
             async with self._flight_lock:
                 self._in_flight_streams.pop(target, None)
 

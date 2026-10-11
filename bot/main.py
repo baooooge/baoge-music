@@ -867,8 +867,10 @@ async def stop(interaction: discord.Interaction):
         player.history.clear()
         player.autoplay = False
         player.loop_mode = "off"
+        player.stop_ticker()
         vc = player.voice_client
         player.stop_current()
+        player.voice_client = None
     await interaction.response.send_message("Stopped.")
     if vc:
         await vc.disconnect()

@@ -127,17 +127,18 @@ class SkipToModal(discord.ui.Modal):
             }
             return await interaction.response.send_message(msgs.get(loc, "Invalid number!"), ephemeral=True)
 
-        if target_index < 1 or target_index > len(self.player.queue):
-            msgs = {
-                "zh_TW": f"無效序號，目前隊列共有 1 到 {len(self.player.queue)} 首。",
-                "zh_CN": f"无效序号，当前队列共有 1 到 {len(self.player.queue)} 首。",
-                "en_US": f"Invalid number. Queue range is 1 to {len(self.player.queue)}.",
-                "ja_JP": f"無効な番号です。1 〜 {len(self.player.queue)} の範囲で入力してください。"
-            }
-            return await interaction.response.send_message(msgs.get(loc, "Invalid range."), ephemeral=True)
+        async with self.player.lock:
+            if target_index < 1 or target_index > len(self.player.queue):
+                msgs = {
+                    "zh_TW": f"無效序號，目前隊列共有 1 到 {len(self.player.queue)} 首。",
+                    "zh_CN": f"无效序号，当前队列共有 1 到 {len(self.player.queue)} 首。",
+                    "en_US": f"Invalid number. Queue range is 1 to {len(self.player.queue)}.",
+                    "ja_JP": f"無効な番号です。1 〜 {len(self.player.queue)} の範囲で入力してください。"
+                }
+                return await interaction.response.send_message(msgs.get(loc, "Invalid range."), ephemeral=True)
 
-        self.player.queue = self.player.queue[target_index - 1:]
-        self.player.stop_current()
+            self.player.queue = self.player.queue[target_index - 1:]
+            self.player.stop_current()
         msgs = {
             "zh_TW": f"已跳至第 {target_index} 首歌曲。",
             "zh_CN": f"已跳至第 {target_index} 首歌曲。",
@@ -1009,7 +1010,9 @@ class GuildPlayer:
                         if hasattr(self.resolver, "invalidate_stream_cache"):
                             await self.resolver.invalidate_stream_cache(next_item["search_query"])
                 else:
-                    await asyncio.sleep(2)
+                    async with self.lock:
+                        self.queue.insert(0, next_item)
+                    await asyncio.sleep(1.0)
 
             except Exception as e:
                 print(f"Audio playback error: {e}")
