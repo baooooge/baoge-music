@@ -673,34 +673,37 @@ async def play(interaction: discord.Interaction, search: str):
                 await vc.disconnect(force=True)
             except Exception:
                 pass
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
 
-        for attempt in range(2):
-            try:
-                player.voice_client = await voice_channel.connect(self_deaf=True, timeout=9.0, reconnect=True)
-                return
-            except (asyncio.TimeoutError, TimeoutError):
-                vc = interaction.guild.voice_client
-                if vc:
-                    try:
-                        await vc.disconnect(force=True)
-                    except Exception:
-                        pass
-                if attempt == 0:
-                    await asyncio.sleep(0.5)
-                    continue
-                raise
-            except discord.ClientException:
+        try:
+            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
+            return
+        except discord.ClientException:
+            for _ in range(6):
+                await asyncio.sleep(0.5)
                 vc = interaction.guild.voice_client
                 if vc and vc.is_connected():
                     player.voice_client = vc
                     if vc.channel != voice_channel:
                         await vc.move_to(voice_channel)
                     return
-                if attempt == 0:
-                    await asyncio.sleep(0.5)
-                    continue
-                raise
+            vc = interaction.guild.voice_client
+            if vc:
+                try:
+                    await vc.disconnect(force=True)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
+            return
+        except Exception:
+            vc = interaction.guild.voice_client
+            if vc and vc.is_connected():
+                player.voice_client = vc
+                if vc.channel != voice_channel:
+                    await vc.move_to(voice_channel)
+                return
+            raise
 
     voice_task = asyncio.create_task(_ensure_voice_connection())
     resolve_task = asyncio.create_task(bot.resolver.resolve_metadata_batch(search))
@@ -712,6 +715,7 @@ async def play(interaction: discord.Interaction, search: str):
         return await interaction.followup.send(bot.i18n.get("VOICE_CONNECT_TIMEOUT", loc))
     except Exception as e:
         resolve_task.cancel()
+        logging.getLogger("discord.voice_state").error("Voice connection error: %s", e, exc_info=True)
         err_msg = str(e).strip() or type(e).__name__
         return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=err_msg))
 
@@ -1147,6 +1151,17 @@ async def slash_broadcast(interaction: discord.Interaction, message: str, title:
     await interaction.followup.send(f"Broadcast complete: Sent to {success} guilds ({failed} failed/skipped).", ephemeral=True)
 
 if __name__ == "__main__":
+    if not os.getenv("DISCORD_TOKEN"):
+        for env_path in (os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), os.path.join(os.getcwd(), ".env")):
+            if os.path.isfile(env_path):
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+                break
+
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise ValueError("DISCORD_TOKEN environment variable not set.")

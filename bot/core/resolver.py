@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import aiohttp
 from bs4 import BeautifulSoup
 import yt_dlp
+import html as html_lib
 
 class YtdlSilentLogger:
     def debug(self, msg):
@@ -261,6 +262,8 @@ class UniversalResolver:
                 fut.set_result([])
             return []
         finally:
+            if not fut.done():
+                fut.set_result([])
             async with self._flight_lock:
                 self._in_flight_searches.pop(query, None)
 
@@ -419,10 +422,86 @@ class UniversalResolver:
         if api_results:
             return api_results[:100]
 
-        clean_url = url.split("?")[0]
+        clean_url = url.split("?")[0].rstrip("/")
         results = []
-
         session = await self.get_session()
+
+        m_pl = re.search(r"/playlist/([a-zA-Z0-9_\-]+)", clean_url)
+        m_album = re.search(r"/album/([a-zA-Z0-9_\-]+)", clean_url)
+        m_song = re.search(r"/song/([a-zA-Z0-9_\-]+)", clean_url)
+
+        item_id = None
+        item_type = None
+        if m_pl:
+            item_id = m_pl.group(1)
+            item_type = "playlist"
+        elif m_album:
+            item_id = m_album.group(1)
+            item_type = "album"
+        elif m_song:
+            item_id = m_song.group(1)
+            item_type = "song"
+
+        if item_id and item_type:
+            widget_url = f"https://widget.kkbox.com/v1/?id={item_id}&type={item_type}&terr=TW&lang=tc"
+            widget_headers = {
+                "User-Agent": self.headers["User-Agent"],
+                "Referer": "https://www.kkbox.com/"
+            }
+            try:
+                async with session.get(widget_url, headers=widget_headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        w_html = await resp.text()
+                        m_state = re.search(r'data-state="([^"]+)"', w_html)
+                        if m_state:
+                            state_data = json.loads(html_lib.unescape(m_state.group(1)))
+                            feed = state_data.get("feed", {})
+                            feed_data = feed.get("data", {})
+
+                            songlist = feed_data.get("songlist", [])
+                            if isinstance(songlist, list) and songlist:
+                                for item in songlist:
+                                    s_name = (item.get("song_name") or item.get("name") or "").strip()
+                                    a_name = (item.get("artist_name") or item.get("artist") or "").strip()
+                                    if s_name:
+                                        q = f"{s_name} {a_name}".strip() if a_name else s_name
+                                        if q and q not in [r["title"] for r in results]:
+                                            results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+                                if results:
+                                    return results[:100]
+
+                            if "song_name" in feed_data:
+                                s_name = feed_data.get("song_name", "").strip()
+                                a_name = feed_data.get("artist_name", "").strip()
+                                if s_name:
+                                    q = f"{s_name} {a_name}".strip() if a_name else s_name
+                                    return [{"title": q, "search_query": q, "webpage_url": clean_url}]
+
+                            token = feed.get("accessToken")
+                            if token and item_type == "playlist":
+                                api_urls = [
+                                    f"https://api.kkbox.com/v1.1/featured-playlists/{item_id}/tracks?territory=TW&limit=100",
+                                    f"https://api.kkbox.com/v1.1/charts/{item_id}/tracks?territory=TW&limit=100",
+                                    f"https://api.kkbox.com/v1.1/shared-playlists/{item_id}/tracks?territory=TW&limit=100"
+                                ]
+                                for a_url in api_urls:
+                                    try:
+                                        async with session.get(a_url, headers={"Authorization": f"Bearer {token}", "User-Agent": self.headers["User-Agent"]}, timeout=aiohttp.ClientTimeout(total=5)) as api_resp:
+                                            if api_resp.status == 200:
+                                                payload = await api_resp.json()
+                                                for it in payload.get("data", []):
+                                                    t_name = it.get("name", "").strip()
+                                                    t_art = it.get("album", {}).get("artist", {}).get("name", "").strip()
+                                                    q = f"{t_name} {t_art}".strip() if t_art else t_name
+                                                    if q and q not in [r["title"] for r in results]:
+                                                        results.append({"title": q, "search_query": q, "webpage_url": clean_url})
+                                                if results:
+                                                    return results[:100]
+                                    except Exception:
+                                        pass
+            except Exception:
+                pass
+
         req_headers = {
             "User-Agent": self.headers["User-Agent"],
             "Accept-Language": self.headers["Accept-Language"],
@@ -552,27 +631,38 @@ class UniversalResolver:
 
         soup = BeautifulSoup(html, "html.parser")
         script = soup.find("script", id="__NEXT_DATA__")
-        if not script or not script.string:
-            return []
+        raw_json = (script.string or script.get_text()) if script else ""
+        if raw_json:
+            try:
+                data = json.loads(raw_json)
+                entity = data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+                if item_type == "track":
+                    title = entity.get("name", "")
+                    artists = " ".join([a.get("name", "") for a in entity.get("artists", [])])
+                    if title:
+                        return [{"title": f"{title} - {artists}".strip(" -"), "search_query": f"{title} {artists}".strip(), "webpage_url": clean_url}]
+                elif item_type in ["album", "playlist", "artist"]:
+                    track_list = entity.get("trackList", [])[:100]
+                    meta_list = []
+                    for t in track_list:
+                        title = t.get("title", "")
+                        subtitle = t.get("subtitle", "")
+                        if title:
+                            meta_list.append({"title": f"{title} - {subtitle}".strip(" -"), "search_query": f"{title} {subtitle}".strip(), "webpage_url": clean_url})
+                    if meta_list:
+                        return meta_list
+            except Exception:
+                pass
 
-        data = json.loads(script.string)
-        entity = data.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+        og_title = soup.find("meta", property="og:title")
+        og_desc = soup.find("meta", property="og:description")
+        if og_title and og_title.get("content"):
+            title = og_title["content"].strip()
+            desc = og_desc.get("content", "").strip() if og_desc else ""
+            q = f"{title} {desc}".strip() if desc else title
+            return [{"title": title, "search_query": q, "webpage_url": clean_url}]
 
-        meta_list = []
-        if item_type == "track":
-            title = entity.get("name", "")
-            artists = " ".join([a.get("name", "") for a in entity.get("artists", [])])
-            if title:
-                meta_list.append({"title": f"{title} - {artists}", "search_query": f"{title} {artists}".strip(), "webpage_url": clean_url})
-        elif item_type in ["album", "playlist", "artist"]:
-            track_list = entity.get("trackList", [])[:100]
-            for t in track_list:
-                title = t.get("title", "")
-                subtitle = t.get("subtitle", "")
-                if title:
-                    meta_list.append({"title": f"{title} - {subtitle}", "search_query": f"{title} {subtitle}".strip(), "webpage_url": clean_url})
-
-        return meta_list
+        return []
 
     async def _resolve_apple_music(self, url: str) -> List[Dict[str, Any]]:
         unquoted_url = urllib.parse.unquote(url)
@@ -652,8 +742,68 @@ class UniversalResolver:
                             return [matched_single]
                         if not target_id and album_results:
                             return album_results[:100]
+
+                    elif ntype in ("MusicGroup", "Person"):
+                        group_art = node.get("name", "").strip()
+                        tracks = node.get("tracks") or node.get("track") or []
+                        group_results = []
+                        for tr in tracks:
+                            tr_name = tr.get("name", "").strip()
+                            if tr_name:
+                                disp = f"{group_art} - {tr_name}" if group_art else tr_name
+                                q = f"{group_art} {tr_name}".strip() if group_art else tr_name
+                                group_results.append({"title": disp, "search_query": q, "webpage_url": url})
+                        if not target_id and group_results:
+                            return group_results[:100]
             except Exception:
                 pass
+
+        server_script = soup.find("script", id="serialized-server-data")
+        if server_script:
+            raw_server = server_script.string or server_script.get_text() or ""
+            if raw_server.strip():
+                try:
+                    s_data = json.loads(raw_server.strip())
+                    sections = s_data.get("data", [{}])[0].get("data", {}).get("sections", [])
+
+                    artist_name = ""
+                    for sec in sections:
+                        if sec.get("kind") == "artistDetailHeader" or sec.get("itemKind") == "artistDetailHeader":
+                            for it in sec.get("items", []):
+                                artist_name = (it.get("title") or it.get("name") or "").strip()
+                                if artist_name:
+                                    break
+                        if artist_name:
+                            break
+
+                    artist_tracks = []
+                    for sec in sections:
+                        for it in sec.get("items", []):
+                            for tr in it.get("tracks", []):
+                                t_title = tr.get("title", "").strip()
+                                t_id = str(tr.get("id", ""))
+                                if not t_title:
+                                    continue
+
+                                t_artist = artist_name
+                                sub_links = tr.get("subtitleLinks", [])
+                                if not t_artist and sub_links:
+                                    t_artist = sub_links[0].get("title", "")
+
+                                disp = f"{t_artist} - {t_title}" if t_artist else t_title
+                                q = f"{t_artist} {t_title}".strip() if t_artist else t_title
+                                item_obj = {"title": disp, "search_query": q, "webpage_url": url}
+
+                                if target_id and target_id == t_id:
+                                    return [item_obj]
+
+                                if not target_id and item_obj not in artist_tracks:
+                                    artist_tracks.append(item_obj)
+
+                    if artist_tracks:
+                        return artist_tracks[:100]
+                except Exception:
+                    pass
 
         if target_id:
             apple_title_meta = soup.find("meta", attrs={"name": "apple:title"})
