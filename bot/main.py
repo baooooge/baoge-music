@@ -159,7 +159,17 @@ class MusicBot(commands.Bot):
         intents.voice_states = True
         intents.guilds = True
         intents.members = True
-        super().__init__(command_prefix="!", intents=intents, chunk_guilds_at_startup=False)
+        init_activity = discord.Activity(
+            type=discord.ActivityType.listening,
+            name="/play | 音樂機器人"
+        )
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            chunk_guilds_at_startup=False,
+            activity=init_activity,
+            status=discord.Status.online
+        )
         self.resolver = UniversalResolver()
         self.players = {}
         self.status_task = None
@@ -330,31 +340,45 @@ class MusicBot(commands.Bot):
                 return "en_US"
         return "zh_TW"
 
+    async def update_presence_now(self, force: bool = False):
+        try:
+            if not self.is_ready():
+                return
+            active_players = [p for p in self.players.values() if p.voice_client and p.voice_client.is_playing() and p.current]
+            active_count = len(active_players)
+            guild_count = len(self.guilds)
+
+            now = time.time()
+            if active_count > 0:
+                text = f"/play | 正在 {active_count} 個伺服器播放音樂"
+            else:
+                text = f"/play | 服務於 {guild_count} 個伺服器"
+
+            current_activity = getattr(self, "activity", None)
+            needs_update = (
+                force or
+                current_activity is None or
+                getattr(current_activity, "name", None) != text or
+                text != self._last_presence_text or
+                (now - self._last_presence_time > 60)
+            )
+
+            if needs_update:
+                activity = discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name=text
+                )
+                await self.change_presence(activity=activity, status=discord.Status.online)
+                self._last_presence_text = text
+                self._last_presence_time = now
+        except Exception:
+            pass
+
     async def dynamic_presence_loop(self):
         await self.wait_until_ready()
         while not self.is_closed():
-            try:
-                active_players = [p for p in self.players.values() if p.voice_client and p.voice_client.is_playing() and p.current]
-                active_count = len(active_players)
-                guild_count = len(self.guilds)
-
-                now = time.time()
-                if active_count > 0:
-                    text = f"/play | 正在 {active_count} 個伺服器播放音樂"
-                else:
-                    text = f"/play | 服務於 {guild_count} 個伺服器"
-
-                if text != self._last_presence_text or (now - self._last_presence_time > 300):
-                    activity = discord.Activity(
-                        type=discord.ActivityType.listening,
-                        name=text
-                    )
-                    await self.change_presence(activity=activity, status=discord.Status.online)
-                    self._last_presence_text = text
-                    self._last_presence_time = now
-            except Exception:
-                pass
-            await asyncio.sleep(45)
+            await self.update_presence_now()
+            await asyncio.sleep(20)
 
     async def send_welcome_announcement(self, guild: discord.Guild, inviter: Optional[discord.User] = None):
         loc = self.get_guild_locale(guild)
@@ -431,15 +455,8 @@ class MusicBot(commands.Bot):
 
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
-        initial_activity = discord.Activity(
-            type=discord.ActivityType.listening,
-            name=f"/play | 服務於 {len(self.guilds)} 個伺服器"
-        )
-        try:
-            await self.change_presence(activity=initial_activity, status=discord.Status.online)
-        except Exception:
-            pass
-        if not self.status_task:
+        await self.update_presence_now(force=True)
+        if not self.status_task or self.status_task.done():
             self.status_task = asyncio.create_task(self.dynamic_presence_loop())
         if not self.watcher_task and os.getenv("ENABLE_AUTO_RELOAD", "0") == "1":
             self.watcher_task = asyncio.create_task(self.auto_hot_reload_loop())
@@ -447,6 +464,10 @@ class MusicBot(commands.Bot):
         if hasattr(self.resolver, "verify_cookies_task"):
             asyncio.create_task(self.resolver.verify_cookies_task())
         print("Ready and listening!")
+
+    async def on_resumed(self):
+        self._last_presence_text = ""
+        await self.update_presence_now(force=True)
 
     async def on_guild_join(self, guild: discord.Guild):
         inviter = None
@@ -460,6 +481,7 @@ class MusicBot(commands.Bot):
                 pass
 
         await self.send_welcome_announcement(guild, inviter=inviter)
+        asyncio.create_task(self.update_presence_now(force=True))
 
     async def on_guild_remove(self, guild: discord.Guild):
         player = self.players.pop(guild.id, None)
@@ -473,6 +495,7 @@ class MusicBot(commands.Bot):
                     await player.voice_client.disconnect(force=True)
                 except Exception:
                     pass
+        asyncio.create_task(self.update_presence_now(force=True))
 
     async def on_member_join(self, member: discord.Member):
         if member.guild.id == SUPPORT_GUILD_ID:
