@@ -178,6 +178,8 @@ class MusicBot(commands.Bot):
         self.i18n = i18n
         self._last_presence_text = ""
         self._last_presence_time = 0.0
+        self._last_active_count = 0
+        self._zero_active_since = 0.0
         self._last_alert_time = 0.0
         self.security_gateway = SecurityGateway()
         self.entitlement_manager = EntitlementManager(self)
@@ -340,15 +342,50 @@ class MusicBot(commands.Bot):
                 return "en_US"
         return "zh_TW"
 
+    def get_active_playing_count(self) -> int:
+        active_gids = set()
+        for vc in self.voice_clients:
+            if not vc.is_connected():
+                continue
+            gid = vc.guild.id
+            p = self.players.get(gid)
+            if vc.is_playing() or vc.is_paused():
+                active_gids.add(gid)
+            elif p and (p.current or p.current_meta or bool(p.queue) or getattr(p, "is_restarting_stream", False)):
+                active_gids.add(gid)
+
+        for gid, p in self.players.items():
+            if p.voice_client and p.voice_client.is_connected():
+                if p.voice_client.is_playing() or p.voice_client.is_paused():
+                    active_gids.add(gid)
+                elif p.current or p.current_meta or bool(p.queue) or getattr(p, "is_restarting_stream", False):
+                    active_gids.add(gid)
+        return len(active_gids)
+
     async def update_presence_now(self, force: bool = False):
         try:
             if not self.is_ready():
                 return
-            active_players = [p for p in self.players.values() if p.voice_client and p.voice_client.is_playing() and p.current]
-            active_count = len(active_players)
+            raw_active_count = self.get_active_playing_count()
             guild_count = len(self.guilds)
-
             now = time.time()
+
+            if raw_active_count > 0:
+                active_count = raw_active_count
+                self._last_active_count = raw_active_count
+                self._zero_active_since = 0.0
+            else:
+                if self._last_active_count > 0:
+                    if self._zero_active_since == 0.0:
+                        self._zero_active_since = now
+                    if (now - self._zero_active_since) < 30.0:
+                        active_count = self._last_active_count
+                    else:
+                        active_count = 0
+                        self._last_active_count = 0
+                else:
+                    active_count = 0
+
             if active_count > 0:
                 text = f"/play | 正在 {active_count} 個伺服器播放音樂"
             else:
