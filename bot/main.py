@@ -675,15 +675,31 @@ async def play(interaction: discord.Interaction, search: str):
                 pass
             await asyncio.sleep(0.2)
 
-        try:
-            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
-        except discord.ClientException:
-            vc = interaction.guild.voice_client
-            if vc and vc.is_connected():
-                player.voice_client = vc
-                if vc.channel != voice_channel:
-                    await vc.move_to(voice_channel)
-            else:
+        for attempt in range(2):
+            try:
+                player.voice_client = await voice_channel.connect(self_deaf=True, timeout=9.0, reconnect=True)
+                return
+            except (asyncio.TimeoutError, TimeoutError):
+                vc = interaction.guild.voice_client
+                if vc:
+                    try:
+                        await vc.disconnect(force=True)
+                    except Exception:
+                        pass
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+                    continue
+                raise
+            except discord.ClientException:
+                vc = interaction.guild.voice_client
+                if vc and vc.is_connected():
+                    player.voice_client = vc
+                    if vc.channel != voice_channel:
+                        await vc.move_to(voice_channel)
+                    return
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+                    continue
                 raise
 
     voice_task = asyncio.create_task(_ensure_voice_connection())
