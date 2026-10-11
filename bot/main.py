@@ -558,10 +558,20 @@ async def play(interaction: discord.Interaction, search: str):
 
     async def _ensure_voice_connection():
         async with player.lock:
-            if not player.voice_client or not player.voice_client.is_connected():
-                player.voice_client = await voice_channel.connect(self_deaf=True)
-            elif player.voice_client.channel != voice_channel:
-                await player.voice_client.move_to(voice_channel)
+            vc = interaction.guild.voice_client
+            if vc and vc.is_connected():
+                player.voice_client = vc
+                if vc.channel != voice_channel:
+                    await vc.move_to(voice_channel)
+                return
+
+            if vc and not vc.is_connected():
+                try:
+                    await vc.disconnect(force=True)
+                except Exception:
+                    pass
+
+            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=15.0, reconnect=True)
 
     voice_task = asyncio.create_task(_ensure_voice_connection())
     resolve_task = asyncio.create_task(bot.resolver.resolve_metadata_batch(search))

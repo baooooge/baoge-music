@@ -1415,17 +1415,20 @@ class UniversalResolver:
                     retry_opts = dict(self.ydl_opts_stream)
                     retry_opts.pop("cookiefile", None)
                     retry_opts["format"] = "best/ba/b"
+                    retry_opts["socket_timeout"] = 5
                     retry_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
-                    with yt_dlp.YoutubeDL(retry_opts) as ydl_retry:
-                        retry_info = ydl_retry.extract_info(clean_target, download=False)
-                        if retry_info:
-                            stream_url = retry_info.get("url")
-                            if not stream_url:
-                                afs = [f for f in retry_info.get("formats", []) if f.get("acodec") != "none"]
-                                if afs:
-                                    chosen_format = afs[-1]
-                                    stream_url = chosen_format.get("url")
-                                    info = retry_info
+                    def _extract_retry():
+                        with yt_dlp.YoutubeDL(retry_opts) as ydl_retry:
+                            return ydl_retry.extract_info(clean_target, download=False)
+                    retry_info = await loop.run_in_executor(self.executor, _extract_retry)
+                    if retry_info:
+                        stream_url = retry_info.get("url")
+                        if not stream_url:
+                            afs = [f for f in retry_info.get("formats", []) if f.get("acodec") != "none"]
+                            if afs:
+                                chosen_format = afs[-1]
+                                stream_url = chosen_format.get("url")
+                                info = retry_info
                 except Exception:
                     pass
 
@@ -1871,7 +1874,7 @@ class UniversalResolver:
             req_headers = dict(http_headers or {})
             if "User-Agent" not in req_headers:
                 req_headers["User-Agent"] = self.headers["User-Agent"]
-            async with session.get(stream_url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=None, connect=5, sock_read=15)) as resp:
+            async with session.get(stream_url, headers=req_headers, timeout=aiohttp.ClientTimeout(total=60, connect=5, sock_read=15)) as resp:
                 if resp.status not in (200, 206):
                     return None
                 with open(part_path, "wb") as f:

@@ -616,29 +616,36 @@ class GuildPlayer:
             if self.voice_client.is_playing() or self.voice_client.is_paused():
                 self.voice_client.stop()
 
-            base_opts = "-loglevel fatal -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
+            base_opts = "-loglevel fatal -nostats -vn -nostdin -sn -dn -threads 1"
             eq_filter = EQ_PRESETS.get(self.current_eq, "")
             if eq_filter:
                 base_opts += f' -af "{eq_filter}"'
 
-            clean_before = re.sub(r"-ss\s+[\d\.]+", "", self.current.get("before_options", DEFAULT_BEFORE_OPTS)).strip()
+            raw_before = self.current.get("before_options", DEFAULT_BEFORE_OPTS)
+            clean_before = re.sub(r"-ss\s+[\d\.]+", "", raw_before).strip()
             clean_before = re.sub(r"-rw_timeout\s+\d+|-timeout\s+\d+", "", clean_before)
             if "-reconnect_streamed 1" not in clean_before:
                 clean_before = f"{clean_before} -reconnect_streamed 1"
             if "-reconnect_at_eof 1" not in clean_before:
                 clean_before = f"{clean_before} -reconnect_at_eof 1"
-            clean_before = re.sub(r"\s+", " ", clean_before).strip()
-            before_opts = f"{clean_before} -ss {seconds}"
+            before_opts = f"{clean_before.strip()} -ss {seconds}"
 
-            raw_source = SafeFFmpegPCMAudio(
-                self.current["stream_url"],
-                before_options=before_opts,
-                options=base_opts
-            )
-            audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
-            self.track_start_time = time.time() - seconds
-            self.voice_client.play(audio_source, after=self._after_playback)
-            await asyncio.sleep(0.3)
+            play_target = self.current["stream_url"]
+            if not play_target or not isinstance(play_target, str) or not play_target.strip():
+                return
+
+            try:
+                raw_source = SafeFFmpegPCMAudio(
+                    play_target,
+                    before_options=before_opts,
+                    options=base_opts
+                )
+                audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
+                self.track_start_time = time.time() - seconds
+                self.voice_client.play(audio_source, after=self._after_playback)
+                await asyncio.sleep(0.3)
+            except Exception:
+                pass
         finally:
             self.is_restarting_stream = False
         await self.update_panel_inplace(force=True)
@@ -927,13 +934,18 @@ class GuildPlayer:
                 if next_item.get("webpage_url") and not self.current.get("webpage_url", "").startswith("http"):
                     self.current["webpage_url"] = next_item["webpage_url"]
 
-                base_opts = "-loglevel fatal -nostats -vn -nostdin -sn -dn -threads 1 -b:a 64k"
+                base_opts = "-loglevel fatal -nostats -vn -nostdin -sn -dn -threads 1"
                 eq_filter = EQ_PRESETS.get(self.current_eq, "")
                 if eq_filter:
                     base_opts += f' -af "{eq_filter}"'
 
                 self.is_manual_interruption = False
                 play_target = self.current["stream_url"]
+                if not play_target or not isinstance(play_target, str) or not play_target.strip():
+                    self.current = None
+                    self.current_meta = None
+                    continue
+
                 before_opts = self.current.get("before_options", DEFAULT_BEFORE_OPTS)
                 start_off = float(self.current.get("start_offset") or next_item.get("start_offset") or 0.0)
 
@@ -947,12 +959,17 @@ class GuildPlayer:
                 if start_off > 0.0 and "-ss" not in before_opts:
                     before_opts = f"{before_opts} -ss {start_off}"
 
-                raw_source = SafeFFmpegPCMAudio(
-                    play_target,
-                    before_options=before_opts,
-                    options=base_opts
-                )
-                audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
+                try:
+                    raw_source = SafeFFmpegPCMAudio(
+                        play_target,
+                        before_options=before_opts,
+                        options=base_opts
+                    )
+                    audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
+                except Exception:
+                    self.current = None
+                    self.current_meta = None
+                    continue
 
                 if self.voice_client and self.voice_client.is_connected():
                     self.track_start_time = time.time() - start_off

@@ -89,7 +89,9 @@
             --ring-2: rgba(255, 255, 255, .1);
         }
 
-        *, *::before, *::after {
+        *,
+        *::before,
+        *::after {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
@@ -517,9 +519,12 @@
         }
 
         @keyframes bob {
-            0%, 100% {
+
+            0%,
+            100% {
                 translate: 0 0;
             }
+
             50% {
                 translate: 0 -8px;
             }
@@ -807,9 +812,12 @@
         }
 
         @keyframes eq {
-            0%, 100% {
+
+            0%,
+            100% {
                 height: 15%;
             }
+
             50% {
                 height: 100%;
             }
@@ -1305,6 +1313,7 @@
                 padding: 6px 8px;
                 font-size: 0.82rem;
             }
+
             .brand {
                 font-size: 1.25rem;
             }
@@ -1380,6 +1389,7 @@
         }
 
         @media (max-width: 980px) {
+
             .hero-grid,
             .host {
                 grid-template-columns: 1fr;
@@ -1394,7 +1404,16 @@
                 grid-template-columns: repeat(6, 1fr);
             }
 
-            .k1, .k2, .k3, .k4, .k5, .k6, .k7, .k8, .k9, .k10 {
+            .k1,
+            .k2,
+            .k3,
+            .k4,
+            .k5,
+            .k6,
+            .k7,
+            .k8,
+            .k9,
+            .k10 {
                 grid-column: span 6;
                 margin-top: 0;
             }
@@ -1690,7 +1709,10 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
+
+            *,
+            *::before,
+            *::after {
                 animation: none !important;
                 transition: none !important;
             }
@@ -1782,8 +1804,8 @@
                     <div class="card k1 reveal">
                         <span class="tag mono">PLATFORMS</span>
                         <i class="fas fa-earth-asia ic"></i>
-                        <h3>完整支援六大平台</h3>
-                        <p>YouTube、Bilibili、StreetVoice（街聲 HLS 直鏈）、KKBOX、Spotify 與 Apple Music。免去繁複 API 金鑰申請，開箱即播。</p>
+                        <h3>原生支援主流串流平台</h3>
+                        <p>全面相容 YouTube、Bilibili、StreetVoice、KKBOX、Spotify 與 Apple Music。免去任何繁複 API 金鑰申請，開箱即播。</p>
                         <div class="chips">
                             <span class="chip">YouTube</span><span class="chip">Bilibili</span><span
                                 class="chip">StreetVoice</span>
@@ -1792,59 +1814,59 @@
                         </div>
                     </div>
                     <div class="card k2 reveal d1">
-                        <span class="tag mono">NO KEYS</span>
+                        <span class="tag mono">ZERO CONFIG</span>
                         <div class="big">0<small>組 API 金鑰</small></div>
-                        <h3>部署零門檻</h3>
-                        <p>不用申請開發者帳號，不用綁信用卡，不用等候審核，填寫 Bot Token 即可秒速起飛。</p>
+                        <h3>開箱即用 · 零門檻部署</h3>
+                        <p>無需註冊第三方開發者帳號、不綁信用卡、不耗時審核，配置單一 Bot Token 即可秒速上線開播。</p>
                     </div>
                     <div class="card k3 reveal">
                         <span class="tag mono">PURITY FILTER</span>
                         <i class="fas fa-filter ic"></i>
-                        <h3>原音純化演算法</h3>
-                        <p>自動過濾現場演唱（Live）、非官方翻唱（Cover）與低質雜音，優先精準鎖定母帶錄音室版本。</p>
+                        <h3>母帶級原音純化技術</h3>
+                        <p>自研加權打分演算法，自動濾除現場雜音（Live）、非官方翻唱（Cover）與短影音二創，精準鎖定官方錄音室母帶。</p>
                     </div>
                     <div class="card k4 reveal d1">
-                        <span class="tag mono">DSP EQ</span>
+                        <span class="tag mono">DSP EQUALIZER</span>
                         <i class="fas fa-sliders ic"></i>
-                        <h3>5 檔 DSP 等化器</h3>
-                        <p>原音直通、重低音強化、極限低音、清晰人聲與通透高音，即刻套用硬體級音效處理。</p>
+                        <h3>5 段動態硬體級 DSP 等化器</h3>
+                        <p>原音直通、重低音增強（Bass Boost）、極限低音、清晰人聲與通透高音，毫秒級無縫切換專屬聲學音場。</p>
                         <div class="eqbars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
                     </div>
                     <div class="card k5 reveal d2">
-                        <span class="tag mono">PANEL & SEEK</span>
+                        <span class="tag mono">DYNAMIC UI</span>
                         <i class="fas fa-hand-pointer ic"></i>
-                        <h3>互動面板與秒級快進</h3>
-                        <p>直覺按鈕操控暫停、跳轉、音量與循環，支援毫秒級精準定位與 ±15 秒快速快進快退。</p>
+                        <h3>免打指令 · 全動態互動面板</h3>
+                        <p>在聊天室即可透過即時按鈕一鍵掌控暫停、切歌、音量與循環，內建動態時間軸進度條與 ±15 秒無感快轉倒帶。</p>
                     </div>
                     <div class="card k6 reveal">
-                        <span class="tag mono">RADIO & 24/7</span>
+                        <span class="tag mono">SMART AUTOPLAY</span>
                         <i class="fas fa-tower-broadcast ic"></i>
-                        <h3>智慧電台與常駐掛台</h3>
-                        <p>清單播畢後自動銜接官方演算法推薦曲目，支援 24/7 全天候常駐掛台，音樂永不停歇。</p>
+                        <h3>頂級自動續播與 24/7 掛台</h3>
+                        <p>歌單播畢無縫銜接官方電台演算法續播，語音無人自動節能斷線；贊助解鎖 24/7 全天候常駐，打造公會專屬電台。</p>
                     </div>
                     <div class="card k7 reveal d1">
-                        <span class="tag mono">LANG</span>
+                        <span class="tag mono">I18N LOCALES</span>
                         <i class="fas fa-language ic"></i>
-                        <h3>多語言自適應架構</h3>
-                        <p>支援繁體中文、簡體中文、英文與日文，自動跟隨伺服器偏好切換，亦可手動即時指定。</p>
+                        <h3>四國語系自適應架構</h3>
+                        <p>原生內建繁體中文、簡體中文、英文與日文，依據伺服器所在區域智慧切換面板語系，亦支援指令手動即時覆蓋。</p>
                     </div>
                     <div class="card k8 reveal d2">
                         <span class="tag mono">SPONSORBLOCK</span>
                         <i class="fas fa-forward-fast ic"></i>
-                        <h3>SponsorBlock 智慧跳過</h3>
-                        <p>串接雲端標籤資料庫，自動辨識並裁切廢話前奏、開頭長對白與無關口播，開播直奔動聽前奏。</p>
+                        <h3>SponsorBlock 智慧精華直達</h3>
+                        <p>串接全球開源標籤資料庫，精準裁切 MV 前後無關對白、廢話口播與無音片頭，開播秒入動聽主旋律。</p>
                     </div>
                     <div class="card k9 reveal">
-                        <span class="tag mono">RESILIENCE</span>
+                        <span class="tag mono">STATE SNAPSHOT</span>
                         <i class="fas fa-shield-halved ic"></i>
-                        <h3>重啟狀態無縫復原</h3>
-                        <p>遭遇維護或容器重啟時，系統自動將播放秒數與隊列持久化為快照，啟動後自律回連並接續開播。</p>
+                        <h3>軍規級重啟無感復原快照</h3>
+                        <p>伺服器維護或 Docker 容器重啟時，自動將播放進度秒數與隊列快照寫入安全持久層，重啟後秒速自律回連原語音續播。</p>
                     </div>
                     <div class="card k10 reveal d1">
-                        <span class="tag mono">PERFORMANCE</span>
+                        <span class="tag mono">HIGH CONCURRENCY</span>
                         <i class="fas fa-bolt-lightning ic"></i>
-                        <h3>300+ 併發極限調優與熱重載</h3>
-                        <p>單機通過 300 語音頻道高負載串流驗證。支援熱重載機制，線上即時更新模組，語音連線毫無中斷。</p>
+                        <h3>300+ 併發極限優化與無縫熱重載</h3>
+                        <p>單主機通過 300 語音頻道高負載串流壓測。內建零中斷熱重載架構，核心解析邏輯即時更新，語音連線不掉線。</p>
                     </div>
                 </div>
             </div>
@@ -1966,17 +1988,24 @@
             <button class="icon-btn x" onclick="closeModal('termsModal')" aria-label="Close"><i
                     class="fas fa-xmark"></i></button>
             <h3>服務條款 (Terms of Service)</h3>
-            <p class="mono" style="font-size:0.75rem; color:var(--ink-3);">最後更新日期：2026 年 10 月 4 日</p>
+            <p class="mono" style="font-size:0.75rem; color:var(--ink-3);">最後更新日期：2026 年 10 月 11 日</p>
             <div class="modal-body">
                 <p>歡迎使用 BaoGe Music Bot（以下簡稱「本服務」）。當您將本機器人加入您的 Discord 伺服器或調用相關指令時，即代表您完全理解並無條件同意本條款之全部內容：</p>
-                
-                <h4>1. 服務形式與「依現狀提供」免責</h4>
-                <p>本服務係以「現狀（As-Is）」及「可用性（As-Available）」為基礎免費提供之開源應用程式。開發者（BaoGe）不對服務之穩定性、即時性、無中斷、零錯誤或對特定用途之適用性提供任何明示或暗示之保證。因網路狀況、上游平台風控、伺服器重啟或硬體故障導致之播歌中斷，開發者不承擔任何直接或間接賠償責任。</p>
-                
-                <h4>2. 第三方內容與版權歸屬</h4>
-                <p>本服務僅為使用者調用公開音訊串流之解析與播放工具，本身不託管、儲存或轉售任何影音內容。所有經由本服務播放之音訊、曲目標題、縮圖與創作者資訊，其著作權與智慧財產權均完整歸屬於原始來源平台（包括但不限於 YouTube、Bilibili、StreetVoice、KKBOX、Spotify 等）及原著作權人。使用者對其點播之內容負完全法律責任。</p>
 
-                <h4>3. 單方修改、終止與拒絕服務權利</h4>
+                <h4>1. 服務形式與「依現狀提供」免責</h4>
+                <p>本服務係以「現狀（As-Is）」及「可用性（As-Available）」為基礎提供之開源應用程式。開發者（BaoGe）不對服務之穩定性、即時性、無中斷、零錯誤或對特定用途之適用性提供任何明示或暗示之保證。本服務高度依賴第三方來源平台（如
+                    YouTube、Bilibili、KKBOX、Apple Music
+                    等）之公開介面與風控策略，因網路狀況、上游平台風控變更、伺服器重啟或硬體故障導致之單曲無法播放或串流中斷，開發者不承擔任何直接或間接賠償責任。</p>
+
+                <h4>2. 第三方內容與版權歸屬</h4>
+                <p>本服務僅為使用者調用公開音訊串流之解析與播放工具，本身不託管、儲存或轉售任何影音內容。所有經由本服務播放之音訊、曲目標題、縮圖與創作者資訊，其著作權與智慧財產權均完整歸屬於原始來源平台（包括但不限於
+                    YouTube、Bilibili、StreetVoice、KKBOX、Spotify、Apple Music 等）及原著作權人。使用者對其點播之內容負完全法律責任。</p>
+
+                <h4>3. 系統資源調度與自動離線機制</h4>
+                <p>為維護伺服器整體頻寬與運算資源之公平分配，本服務設有客觀節能與離線防護：當語音頻道內無任何真人收聽時，機器人將於 60 秒後強制停止串流並離開；在播放完畢且佇列清空之閒置狀態下，將於 3
+                    分鐘後自動退出。前述行為屬正常系統資源調度機制，非屬異常或故障。</p>
+
+                <h4>4. 單方修改、終止與拒絕服務權利</h4>
                 <p>開發者保留在任何時間、無需事前通知的情況下，行使下列權利：</p>
                 <ul>
                     <li>限制、暫停或終止特定 Discord 伺服器或個別使用者存取本服務之權限（包括濫用高頻指令、發送惡意請求或繞過身分檢查者）。</li>
@@ -1984,8 +2013,13 @@
                     <li>隨時修訂本服務條款，修訂後的內容於本網站公布時即刻生效。</li>
                 </ul>
 
-                <h4>4. 使用規範與禁止行為</h4>
-                <p>使用者不得利用本服務從事任何違反中華民國法令、國際版權規範或 Discord 官方服務條款（Terms of Service / Community Guidelines）之行為，亦不得對本服務實施逆向工程、惡意壓力測試或阻斷服務攻擊（DoS/DDoS）。</p>
+                <h4>5. 自願贊助與虛擬功能權益</h4>
+                <p>任何透過第三方贊助平台（包括但不限於 Patreon）對本專案之贊助，均屬自願無償支持伺服器硬體營運、頻寬維持與後續開源研發之贈與性質。贊助所獲取之進階功能資格（如 24/7
+                    不離線模式、專屬音訊等化器、擴充佇列上限）純屬感謝性虛擬權益，不構成商業買賣契約，亦不提供特定服務水準協議（SLA）保證。贊助款項一經扣款處理概不退還。</p>
+
+                <h4>6. 使用規範與禁止行為</h4>
+                <p>使用者不得利用本服務從事任何違反中華民國法令、國際版權規範或 Discord 官方服務條款（Terms of Service / Community
+                    Guidelines）之行為，亦不得對本服務實施逆向工程、惡意壓力測試或阻斷服務攻擊（DoS/DDoS）。</p>
             </div>
             <button class="btn btn-orange btn-sm" onclick="closeModal('termsModal')">我已理解並同意</button>
         </div>
@@ -1996,26 +2030,29 @@
             <button class="icon-btn x" onclick="closeModal('privacyModal')" aria-label="Close"><i
                     class="fas fa-xmark"></i></button>
             <h3>隱私權政策 (Privacy Policy)</h3>
-            <p class="mono" style="font-size:0.75rem; color:var(--ink-3);">最後更新日期：2026 年 10 月 4 日</p>
+            <p class="mono" style="font-size:0.75rem; color:var(--ink-3);">最後更新日期：2026 年 10 月 11 日</p>
             <div class="modal-body">
                 <p>BaoGe Music Bot 極度重視您的隱私權。本政策說明本機器人在運作時如何處理資料：</p>
-                
+
                 <h4>1. 資料收集範圍</h4>
                 <p>本服務秉持最小化資料原則，僅在記憶體中處理維持功能所必需之技術資訊：</p>
                 <ul>
                     <li><strong>點播與佇列資訊</strong>：為在頻道中顯示播放進度與待播清單，系統會暫存點播者之 Discord 使用者 ID、暱稱、歌曲網址與曲目標題。</li>
                     <li><strong>伺服器設定資訊</strong>：儲存該伺服器所設定之語言偏好（例如 zh_TW、en_US）與音量等化器偏好。</li>
-                    <li><strong>社群資格驗證</strong>：在調用播放功能時，系統僅即時查詢該使用者是否在官方支援伺服器名單中，不建立持久化個人個資庫。</li>
+                    <li><strong>資格與權益驗證</strong>：在調用播放或進階功能時，系統僅即時查詢該使用者是否在官方支援伺服器名單或 Patreon
+                        贊助名單中，查詢結果僅於記憶體短期快取，絕不建立持久化個人個資庫。</li>
                 </ul>
 
                 <h4>2. 絕不收集與記錄之資料</h4>
-                <p>本服務<strong>絕對不會</strong>收集、監聽、轉錄或儲存任何語音頻道之語音內容，亦不會讀取或備份文字頻道之任何非指令聊天紀錄，更不會收集使用者的個人真實身分、電子郵件、密碼或通訊錄。</p>
+                <p>本服務<strong>絕對不會</strong>收集、監聽、轉錄或儲存任何語音頻道之語音內容，亦不會讀取或備份文字頻道之任何非指令聊天紀錄，更不會收集使用者的個人真實身分、電子郵件、密碼或通訊錄。
+                </p>
 
                 <h4>3. 資料之儲存與第三方分享</h4>
-                <p>所有播放佇列與暫存資料均存於臨時記憶體中，機器人重啟或斷線離開頻道時即刻清空，不會持久化寫入外部雲端資料庫。開發者承諾絕不將任何收集到的技術資料出售、出租或移轉給任何第三方機構或廣告商，除非依法配合司法或監管機關之強制性要求。</p>
+                <p>所有播放佇列與暫存資料均存於臨時記憶體中，機器人重啟或斷線離開頻道時即刻清空，不會持久化寫入外部雲端資料庫。開發者承諾絕不將任何收集到的技術資料出售、出租或移轉給任何第三方機構或廣告商，除非依法配合司法或監管機關之強制性要求。
+                </p>
 
                 <h4>4. 資料刪除與聯絡途徑</h4>
-                <p>當機器人自您的 Discord 伺服器移除時，該伺服器之暫存播放資料將立刻自動作廢。若您對隱私權有任何疑慮，可透過官方 Discord 支援社群直接聯繫管理團隊。</p>
+                <p>當機器人自您的 Discord 伺服器移除時，該伺服器之暫存播放資料將立刻自動作廢。若您對隱私權有任何疑慮或欲請求手動清除資料，可透過官方 Discord 支援社群直接聯繫管理團隊。</p>
             </div>
             <button class="btn btn-orange btn-sm" onclick="closeModal('privacyModal')">確認</button>
         </div>
