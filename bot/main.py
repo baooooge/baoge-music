@@ -163,7 +163,21 @@ class MusicBot(commands.Bot):
         self.entitlement_manager = EntitlementManager(self)
         self.voice_reaper = VoiceReaper(is_247_predicate=lambda gid: not self.get_player(gid).auto_disconnect)
         self.wavelink_manager = WavelinkManager(self)
+        self.tree.on_error = self.on_tree_error
         self._setup_resolver_alert(self.resolver)
+
+    async def on_tree_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        orig = getattr(error, "original", error)
+        if isinstance(orig, (discord.NotFound, discord.HTTPException)) and getattr(orig, "code", None) in (10062, 40060):
+            return
+        try:
+            err_text = str(orig or error)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"Error: {err_text}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"Error: {err_text}", ephemeral=True)
+        except Exception:
+            pass
 
     def _setup_resolver_alert(self, resolver_instance):
         resolver_instance.alert_callback = lambda msg: self.loop.call_soon_threadsafe(
@@ -502,16 +516,25 @@ async def sync(ctx):
     await ctx.send(f"Synced {len(global_synced)} global application commands.")
 
 async def play_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    if not current:
+    clean = (current or "").strip()
+    if not clean or len(clean) < 2 or clean.startswith("http://") or clean.startswith("https://"):
         return []
-    suggestions = await bot.resolver.get_search_suggestions(current)
-    return [app_commands.Choice(name=s, value=s) for s in suggestions]
+    try:
+        suggestions = await asyncio.wait_for(bot.resolver.get_search_suggestions(clean), timeout=0.8)
+        return [app_commands.Choice(name=s[:100], value=s[:100]) for s in suggestions[:5]]
+    except Exception:
+        return []
 
 @bot.tree.command(name="play", description="播放歌曲 / Play audio / 音楽を再生")
 @app_commands.describe(search="歌曲名稱或平台網址 / Track title or URL / 曲名またはURL")
 @app_commands.autocomplete(search=play_autocomplete)
 async def play(interaction: discord.Interaction, search: str):
-    await interaction.response.defer()
+    try:
+        await interaction.response.defer()
+    except (discord.NotFound, discord.HTTPException) as ex:
+        if getattr(ex, "code", None) in (10062, 40060):
+            return
+        raise
     loc = bot.get_guild_locale(interaction.guild)
 
     cooldown_ok, remaining = bot.security_gateway.enforce_cooldown(interaction.user.id, action_type="play", window=2.5)
