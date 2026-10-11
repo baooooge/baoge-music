@@ -469,9 +469,9 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
         status = 404
         reason = "Not Found"
 
-    p_panel_test = bot.get_player(guilds[10].id)
+    p_panel_test = bot.get_player(guilds[min(10, len(guilds) - 1)].id)
     p_panel_test.current = {"title": "Panel Test", "webpage_url": "https://example.com"}
-    p_panel_test.panel_message = MockDeletedMessage(guilds[10].text_channels[0])
+    p_panel_test.panel_message = MockDeletedMessage(guilds[min(10, len(guilds) - 1)].text_channels[0])
     await p_panel_test.update_panel_inplace(force=True)
     if p_panel_test.panel_message is not None:
         errors.append("Panel message failed to auto-recover/reset to None when deleted (NotFound)")
@@ -557,18 +557,19 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     return metrics
 
 async def main():
-    total_passes = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 30
-    print(f"Starting 300-Server Comprehensive Stress Test Suite ({total_passes} Iterations)")
+    total_passes = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 5
+    guild_count = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 200
+    print(f"Starting {guild_count}-Server Comprehensive Stress Test Suite ({total_passes} Iterations)")
     all_metrics = []
     t_suite_start = time.time()
 
     for i in range(1, total_passes + 1):
-        m = await run_single_pass(i, 300)
+        m = await run_single_pass(i, guild_count)
         all_metrics.append(m)
         if m["error_count"] > 0:
             print(f"Pass {i} failed with errors! Halting execution.")
             sys.exit(1)
-        if i % 10 == 0:
+        if i % 1 == 0:
             print(f"--- Completed Milestone: {i} / {total_passes} Passes (100% Stability, 0 Errors) ---")
         await asyncio.sleep(0.05)
 

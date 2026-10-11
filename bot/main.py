@@ -1069,14 +1069,21 @@ async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
                 asyncio.create_task(old_resolver.graceful_close(drain_timeout=30.0))
             elif hasattr(old_resolver, "close"):
                 asyncio.create_task(old_resolver.close())
-        for p in list(bot_instance.players.values()):
+        async def _smooth_panel_refresh(target_player, delay_sec):
+            try:
+                await asyncio.sleep(delay_sec)
+                await target_player.update_panel_inplace(force=True)
+            except Exception:
+                pass
+
+        for idx, p in enumerate(list(bot_instance.players.values())):
             p.__class__ = core.player.GuildPlayer
             p.resolver = bot_instance.resolver
             if not hasattr(p, "lock") or p.lock is None:
                 p.lock = asyncio.Lock()
             p.ensure_audio_task()
             if p.panel_message:
-                asyncio.create_task(p.update_panel_inplace(force=True))
+                asyncio.create_task(_smooth_panel_refresh(p, idx * 0.05))
         return True, "Core modules and locales hot-reloaded successfully. Voice playback uninterrupted."
     except Exception as e:
         return False, f"Hot-reload failed: {e}"

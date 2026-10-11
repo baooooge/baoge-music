@@ -107,12 +107,12 @@ class UniversalResolver:
         self._meta_pool = []
         self._stream_pool = []
 
-        self.executor = ThreadPoolExecutor(max_workers=min(32, max(8, (os.cpu_count() or 4) * 4)))
+        self.executor = ThreadPoolExecutor(max_workers=min(64, max(16, (os.cpu_count() or 4) * 8)))
         self._meta_cache = OrderedDict()
         self._stream_cache = OrderedDict()
         self._cache_lock = asyncio.Lock()
         self._session: Optional[aiohttp.ClientSession] = None
-        self._extract_semaphore = asyncio.Semaphore(16)
+        self._extract_semaphore = asyncio.Semaphore(48)
         self._flight_lock = asyncio.Lock()
         self._in_flight_searches: Dict[str, asyncio.Future] = {}
         self._in_flight_streams: Dict[str, asyncio.Future] = {}
@@ -141,7 +141,7 @@ class UniversalResolver:
         if time.time() < self._cookie_rate_limited_until:
             return
         with self._pool_lock:
-            if len(self._meta_pool) < 16:
+            if len(self._meta_pool) < 48:
                 self._meta_pool.append(ydl_inst)
 
     def _acquire_ydl_stream(self) -> yt_dlp.YoutubeDL:
@@ -159,14 +159,14 @@ class UniversalResolver:
         if time.time() < self._cookie_rate_limited_until:
             return
         with self._pool_lock:
-            if len(self._stream_pool) < 16:
+            if len(self._stream_pool) < 48:
                 self._stream_pool.append(ydl_inst)
 
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(
-                limit=100,
-                limit_per_host=30,
+                limit=300,
+                limit_per_host=60,
                 ttl_dns_cache=600,
                 keepalive_timeout=60,
                 enable_cleanup_closed=True
