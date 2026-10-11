@@ -719,7 +719,12 @@ async def play(interaction: discord.Interaction, search: str):
         err_msg = str(e).strip() or type(e).__name__
         return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=err_msg))
 
-    tracks = await resolve_task
+    try:
+        tracks = await resolve_task
+    except Exception as e:
+        logging.getLogger("discord.resolver").error("Resolution error: %s", e, exc_info=True)
+        tracks = []
+
     if not tracks:
         return await interaction.followup.send(bot.i18n.get("NO_AUDIO_FOUND", loc))
 
