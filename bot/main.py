@@ -23,7 +23,17 @@ if os.name != "nt":
     except ImportError:
         pass
 
+class DiscordTimingNoiseFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info:
+            _, exc_val, _ = record.exc_info
+            if isinstance(exc_val, (discord.NotFound, discord.HTTPException)):
+                if getattr(exc_val, "code", None) in (10062, 40060):
+                    return False
+        return True
+
 logging.getLogger("discord.player").setLevel(logging.WARNING)
+logging.getLogger("discord.app_commands.tree").addFilter(DiscordTimingNoiseFilter())
 
 LOCALES_DIR = "/app/bot/locales" if os.path.exists("/app/bot/locales") else os.path.join(os.path.dirname(__file__), "locales")
 COMMANDS_HASH_FILE = "/app/bot/.commands_hash" if os.path.exists("/app/bot") else os.path.join(os.path.dirname(__file__), ".commands_hash")
