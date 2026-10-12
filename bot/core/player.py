@@ -54,6 +54,13 @@ DEFAULT_BEFORE_OPTS = (
 )
 
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
+    def __init__(self, source, *args, **kwargs):
+        if "executable" not in kwargs:
+            local_bin = os.path.join(os.getcwd(), "ffmpeg.exe")
+            if os.path.isfile(local_bin):
+                kwargs["executable"] = local_bin
+        super().__init__(source, *args, **kwargs)
+
     def cleanup(self):
         proc = self._process
         if proc is None:

@@ -36,3 +36,6 @@ Thumbs.db
 
 lavalink/application.yml
 !lavalink/application.example.yml
+
+ffmpeg.exe
+*.exe
