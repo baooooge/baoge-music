@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 import asyncio
 import random
 import math
@@ -6,6 +8,15 @@ import time
 import re
 from typing import Optional, List, Dict, Any, Set
 import discord
+
+if not discord.opus.is_loaded():
+    for opus_candidate in ("libopus.so.0", "libopus.so", "opus", "libopus-0.x64.dll", "libopus-0.dll"):
+        try:
+            discord.opus.load_opus(opus_candidate)
+            if discord.opus.is_loaded():
+                break
+        except Exception:
+            pass
 
 EQ_PRESETS = {
     "flat": "",
@@ -56,9 +67,12 @@ DEFAULT_BEFORE_OPTS = (
 class SafeFFmpegPCMAudio(discord.FFmpegPCMAudio):
     def __init__(self, source, *args, **kwargs):
         if "executable" not in kwargs:
-            local_bin = os.path.join(os.getcwd(), "ffmpeg.exe")
-            if os.path.isfile(local_bin):
-                kwargs["executable"] = local_bin
+            if sys.platform == "win32":
+                local_bin = os.path.join(os.getcwd(), "ffmpeg.exe")
+                if os.path.isfile(local_bin):
+                    kwargs["executable"] = local_bin
+            else:
+                kwargs["executable"] = "ffmpeg"
         super().__init__(source, *args, **kwargs)
 
     def cleanup(self):
@@ -977,14 +991,26 @@ class GuildPlayer:
                         options=base_opts
                     )
                     audio_source = discord.PCMVolumeTransformer(raw_source, volume=self.volume)
-                except Exception:
+                except Exception as ex:
+                    logging.getLogger("discord.player").error("SafeFFmpegPCMAudio initialization failed: %s", ex, exc_info=True)
                     self.current = None
                     self.current_meta = None
                     continue
 
                 if self.voice_client and self.voice_client.is_connected():
                     self.track_start_time = time.time() - start_off
-                    self.voice_client.play(audio_source, after=self._after_playback)
+                    try:
+                        self.voice_client.play(audio_source, after=self._after_playback)
+                    except Exception as ex:
+                        logging.getLogger("discord.player").error("voice_client.play failed: %s", ex, exc_info=True)
+                        if audio_source:
+                            try:
+                                audio_source.cleanup()
+                            except Exception:
+                                pass
+                        self.current = None
+                        self.current_meta = None
+                        continue
                     await self.post_new_panel()
                     self.start_ticker()
                     if self.queue and hasattr(self.resolver, "preload_track_audio"):

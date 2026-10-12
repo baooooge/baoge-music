@@ -25,3 +25,5 @@ tests/
 *.tmp
 *.bak
 data/state_snapshot.json
+*.exe
+ffmpeg.exe
