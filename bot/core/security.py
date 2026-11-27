@@ -18,6 +18,8 @@ ALLOWED_DOMAINS = {
     "on.soundcloud.com",
     "spotify.com",
     "open.spotify.com",
+    "spotify.link",
+    "spotify.app.link",
     "apple.com",
     "music.apple.com",
     "streetvoice.com",
@@ -26,7 +28,8 @@ ALLOWED_DOMAINS = {
 }
 
 MAX_QUERY_LENGTH = 150
-GUILD_QUEUE_LIMIT = 100
+MAX_URL_LENGTH = 1024
+GUILD_QUEUE_LIMIT = 500
 DEFAULT_USER_QUEUE_LIMIT = 100
 PATRON_USER_QUEUE_LIMIT = 200
 COOLDOWN_WINDOW_SECONDS = 3.0
@@ -61,6 +64,8 @@ class SecurityGateway:
         if elapsed < window:
             strike_count += 1
             self._spam_strike[user_id] = (now, strike_count)
+            if len(self._spam_strike) > 5000:
+                self._spam_strike.pop(next(iter(self._spam_strike)), None)
             return False, window - elapsed
 
         self._user_last_action[key] = now
@@ -70,8 +75,9 @@ class SecurityGateway:
 
     def sanitize_and_truncate(self, query: str) -> str:
         clean = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", query).strip()
-        if len(clean) > MAX_QUERY_LENGTH:
-            return clean[:MAX_QUERY_LENGTH].rstrip()
+        limit = MAX_URL_LENGTH if self.is_url(clean) else MAX_QUERY_LENGTH
+        if len(clean) > limit:
+            return clean[:limit].rstrip()
         return clean
 
     def is_url(self, query: str) -> bool:
@@ -82,7 +88,7 @@ class SecurityGateway:
             parsed = urlparse(url)
             if parsed.scheme not in ("http", "https"):
                 return False, "INVALID_SCHEME"
-            netloc = (parsed.netloc or "").lower().split(":")[0]
+            netloc = (parsed.hostname or "").lower()
             if not netloc:
                 return False, "EMPTY_HOST"
             for domain in ALLOWED_DOMAINS:

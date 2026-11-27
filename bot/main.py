@@ -6,15 +6,39 @@ import time
 import logging
 import hashlib
 from typing import Optional, Dict
+from collections import OrderedDict
+
+def _load_dotenv_early():
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for env_path in (os.path.join(base_dir, ".env"), "/app/.env", os.path.join(os.getcwd(), ".env")):
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+            except Exception:
+                pass
+            break
+
+_load_dotenv_early()
+
 import discord
 from discord import app_commands
 from discord.ext import commands
+try:
+    import wavelink
+except ImportError:
+    wavelink = None
 from core.resolver import UniversalResolver
-from core.player import GuildPlayer, QueuePaginator, EQ_LABELS
+from core.player import GuildPlayer, QueuePaginator
 from core.security import SecurityGateway
 from core.entitlement import EntitlementManager
 from core.voice_reaper import VoiceReaper
 from core.wavelink_node import WavelinkManager
+from core.audio_bridge import AudioBridge
 
 if os.name != "nt":
     try:
@@ -37,6 +61,7 @@ logging.getLogger("discord.app_commands.tree").addFilter(DiscordTimingNoiseFilte
 
 LOCALES_DIR = "/app/bot/locales" if os.path.exists("/app/bot/locales") else os.path.join(os.path.dirname(__file__), "locales")
 COMMANDS_HASH_FILE = "/app/bot/.commands_hash" if os.path.exists("/app/bot") else os.path.join(os.path.dirname(__file__), ".commands_hash")
+GUILD_CMDS_CLEARED_FILE = os.path.join("/app/data" if os.path.exists("/app/data") else "data", ".guild_cmds_cleared")
 SUPPORT_GUILD_ID = int(os.getenv("SUPPORT_GUILD_ID", 1039860460389941338))
 ALERT_CHANNEL_ID = int(os.getenv("ALERT_CHANNEL_ID", 1473748279627092094))
 SUPPORT_INVITE_URL = os.getenv("SUPPORT_INVITE_URL", "https://discord.com/invite/92BB9zGRmS")
@@ -44,7 +69,7 @@ OFFICIAL_WEBSITE_URL = os.getenv("OFFICIAL_WEBSITE_URL", "https://musicbot.bybao
 DONATE_URL = os.getenv("DONATE_URL", "https://donate.bybaoge.com/")
 PATREON_URL = os.getenv("PATREON_URL", "https://patreon.bybaoge.com/")
 
-_MEMBERSHIP_CACHE = {}
+_MEMBERSHIP_CACHE: OrderedDict = OrderedDict()
 _MEMBERSHIP_LOCK: Optional[asyncio.Lock] = None
 _IN_FLIGHT_AUTH: Dict[int, asyncio.Future] = {}
 
@@ -54,6 +79,10 @@ def get_membership_lock() -> asyncio.Lock:
         _MEMBERSHIP_LOCK = asyncio.Lock()
     return _MEMBERSHIP_LOCK
 
+def _evict_membership_cache(max_size: int = 5000):
+    while len(_MEMBERSHIP_CACHE) > max_size:
+        _MEMBERSHIP_CACHE.popitem(last=False)
+
 async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bool:
     if not SUPPORT_GUILD_ID:
         return True
@@ -62,16 +91,23 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
     if user_id in _MEMBERSHIP_CACHE:
         cached_time, is_member = _MEMBERSHIP_CACHE[user_id]
         if is_member and (now - cached_time < 600):
+            _MEMBERSHIP_CACHE.move_to_end(user_id)
             return True
         if not is_member and (now - cached_time < 60):
             return False
 
+    is_owner = False
     mem_lock = get_membership_lock()
     async with mem_lock:
         if user_id in _IN_FLIGHT_AUTH:
-            return await _IN_FLIGHT_AUTH[user_id]
-        fut = asyncio.get_running_loop().create_future()
-        _IN_FLIGHT_AUTH[user_id] = fut
+            fut = _IN_FLIGHT_AUTH[user_id]
+        else:
+            fut = asyncio.get_running_loop().create_future()
+            _IN_FLIGHT_AUTH[user_id] = fut
+            is_owner = True
+
+    if not is_owner:
+        return await fut
 
     try:
         official_guild = bot.get_guild(SUPPORT_GUILD_ID)
@@ -79,46 +115,33 @@ async def check_official_guild_membership(bot: commands.Bot, user_id: int) -> bo
             try:
                 official_guild = await bot.fetch_guild(SUPPORT_GUILD_ID)
             except Exception:
-                if not fut.done():
-                    fut.set_result(True)
+                _set_auth_result(fut, user_id, True)
                 return True
 
         member = official_guild.get_member(user_id)
-        if member:
-            _MEMBERSHIP_CACHE[user_id] = (now, True)
-            if len(_MEMBERSHIP_CACHE) > 5000:
-                _MEMBERSHIP_CACHE.pop(next(iter(_MEMBERSHIP_CACHE)), None)
-            if not fut.done():
-                fut.set_result(True)
-            return True
+        if not member:
+            try:
+                member = await official_guild.fetch_member(user_id)
+            except Exception:
+                member = None
 
-        try:
-            member = await official_guild.fetch_member(user_id)
-            if member:
-                _MEMBERSHIP_CACHE[user_id] = (now, True)
-                if len(_MEMBERSHIP_CACHE) > 5000:
-                    _MEMBERSHIP_CACHE.pop(next(iter(_MEMBERSHIP_CACHE)), None)
-                if not fut.done():
-                    fut.set_result(True)
-                return True
-        except Exception:
-            pass
-
-        _MEMBERSHIP_CACHE[user_id] = (now, False)
-        if len(_MEMBERSHIP_CACHE) > 5000:
-            _MEMBERSHIP_CACHE.pop(next(iter(_MEMBERSHIP_CACHE)), None)
-        if not fut.done():
-            fut.set_result(False)
-        return False
+        is_member = member is not None
+        _MEMBERSHIP_CACHE[user_id] = (now, is_member)
+        _evict_membership_cache()
+        _set_auth_result(fut, user_id, is_member)
+        return is_member
     except Exception:
-        if not fut.done():
-            fut.set_result(True)
+        _set_auth_result(fut, user_id, True)
         return True
     finally:
         if not fut.done():
             fut.set_result(True)
         async with mem_lock:
             _IN_FLIGHT_AUTH.pop(user_id, None)
+
+def _set_auth_result(fut: asyncio.Future, user_id: int, result: bool):
+    if not fut.done():
+        fut.set_result(result)
 
 class LocalizationManager:
     def __init__(self):
@@ -152,6 +175,8 @@ class LocalizationManager:
 
 i18n = LocalizationManager()
 
+GUILD_LOCALES_FILE = os.path.join("/app/data" if os.path.exists("/app/data") else "data", "guild_locales.json")
+
 class MusicBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -164,7 +189,7 @@ class MusicBot(commands.Bot):
             name="/play | 音樂機器人"
         )
         super().__init__(
-            command_prefix="!",
+            command_prefix=commands.when_mentioned,
             intents=intents,
             chunk_guilds_at_startup=False,
             activity=init_activity,
@@ -174,7 +199,8 @@ class MusicBot(commands.Bot):
         self.players = {}
         self.status_task = None
         self.watcher_task = None
-        self.guild_locales = {}
+        self._initialized = False
+        self.guild_locales = self._load_guild_locales()
         self.i18n = i18n
         self._last_presence_text = ""
         self._last_presence_time = 0.0
@@ -183,10 +209,32 @@ class MusicBot(commands.Bot):
         self._last_alert_time = 0.0
         self.security_gateway = SecurityGateway()
         self.entitlement_manager = EntitlementManager(self)
-        self.voice_reaper = VoiceReaper(is_247_predicate=lambda gid: not self.get_player(gid).auto_disconnect)
+        self.entitlement = self.entitlement_manager
+        self.voice_reaper = VoiceReaper(
+            is_247_predicate=lambda gid: bool((p := self.players.get(gid)) and not p.auto_disconnect)
+        )
         self.wavelink_manager = WavelinkManager(self)
+        self.audio_bridge = AudioBridge()
         self.tree.on_error = self.on_tree_error
         self._setup_resolver_alert(self.resolver)
+
+    def _load_guild_locales(self) -> Dict[int, str]:
+        if not os.path.isfile(GUILD_LOCALES_FILE):
+            return {}
+        try:
+            with open(GUILD_LOCALES_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            return {int(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+        except Exception:
+            return {}
+
+    def save_guild_locales(self):
+        try:
+            os.makedirs(os.path.dirname(GUILD_LOCALES_FILE), exist_ok=True)
+            with open(GUILD_LOCALES_FILE, "w", encoding="utf-8") as f:
+                json.dump({str(k): v for k, v in self.guild_locales.items()}, f, ensure_ascii=False)
+        except Exception:
+            pass
 
     async def on_tree_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         orig = getattr(error, "original", error)
@@ -200,6 +248,11 @@ class MusicBot(commands.Bot):
                 await interaction.followup.send(f"Error: {err_text}", ephemeral=True)
         except Exception:
             pass
+
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError):
+        if isinstance(error, (commands.CommandNotFound, commands.NotOwner)):
+            return
+        await super().on_command_error(ctx, error)
 
     def _setup_resolver_alert(self, resolver_instance):
         resolver_instance.alert_callback = lambda msg: self.loop.call_soon_threadsafe(
@@ -248,13 +301,16 @@ class MusicBot(commands.Bot):
             self.status_task.cancel()
         if hasattr(self, "resolver") and self.resolver and hasattr(self.resolver, "close"):
             await self.resolver.close()
+        if hasattr(self, "wavelink_manager") and self.wavelink_manager:
+            await self.wavelink_manager.close()
+        if hasattr(self, "audio_bridge") and self.audio_bridge:
+            await self.audio_bridge.stop()
         await super().close()
 
     async def auto_hot_reload_loop(self):
-        watch_dirs = [
-            os.path.join(os.path.dirname(__file__), "core"),
-            LOCALES_DIR
-        ]
+        core_dir = os.path.join(os.path.dirname(__file__), "core")
+        watch_dirs = [core_dir, LOCALES_DIR]
+        hot_reloadable_core = {"resolver.py", "player.py", "wavelink_node.py"}
         mtimes = {}
         for d in watch_dirs:
             if os.path.exists(d):
@@ -275,7 +331,8 @@ class MusicBot(commands.Bot):
             if now - last_reload_time < 30.0:
                 continue
 
-            changed_core = False
+            hot_changed = []
+            restart_only = []
             for d in watch_dirs:
                 if os.path.exists(d):
                     for f in os.listdir(d):
@@ -287,16 +344,21 @@ class MusicBot(commands.Bot):
                                 current_mtime = os.path.getmtime(fp)
                                 prev_mtime = mtimes.get(fp)
                                 if prev_mtime is not None and (current_mtime - prev_mtime > 3.0):
-                                    changed_core = True
+                                    if d == LOCALES_DIR or f in hot_reloadable_core:
+                                        hot_changed.append(f)
+                                    else:
+                                        restart_only.append(f)
                                 mtimes[fp] = current_mtime
                             except Exception:
                                 pass
 
-            if changed_core:
+            if hot_changed:
                 last_reload_time = now
-                print("Detected core file changes. Auto hot-reloading...")
+                print(f"Detected core file changes ({', '.join(sorted(set(hot_changed)))}). Auto hot-reloading...")
                 success, msg = await perform_hot_reload(self)
                 print(f"Auto hot-reload result: {msg}")
+            if restart_only:
+                print(f"[HotReload] Changed module(s) requiring Python restart (Lavalink stays running): {', '.join(sorted(set(restart_only)))}")
 
     async def setup_hook(self):
         cmds = sorted([f"{c.name}:{getattr(c, 'description', '')}" for c in self.tree.get_commands()])
@@ -321,6 +383,16 @@ class MusicBot(commands.Bot):
         else:
             print("Commands up to date. Skipped sync to prevent Gateway rate-limits.")
         await self.wavelink_manager.connect_node()
+        if self.wavelink_manager.node is not None and not self.wavelink_manager.is_connected():
+            for _ in range(20):
+                if self.wavelink_manager.is_connected():
+                    break
+                await asyncio.sleep(0.1)
+        if self.wavelink_manager.is_connected():
+            await self.audio_bridge.start()
+            print(f"Audio Backend: Lavalink 4.2+ ({self.wavelink_manager.node_uri}) + AudioBridge")
+        else:
+            print("Audio Backend: Standalone FFmpeg")
         self.entitlement_manager.start_reconciliation()
 
     def get_guild_locale(self, guild: Optional[discord.Guild]) -> str:
@@ -345,20 +417,22 @@ class MusicBot(commands.Bot):
     def get_active_playing_count(self) -> int:
         active_gids = set()
         for vc in self.voice_clients:
-            if not vc.is_connected():
+            if not getattr(vc, "guild", None):
                 continue
             gid = vc.guild.id
             p = self.players.get(gid)
-            if vc.is_playing() or vc.is_paused():
-                active_gids.add(gid)
-            elif p and (p.current or p.current_meta or bool(p.queue) or getattr(p, "is_restarting_stream", False)):
+            if p:
+                if p.vc_is_connected(vc) and (p.vc_is_playing(vc) or p.vc_is_paused(vc) or p.current or p.current_meta or bool(p.queue) or getattr(p, "is_restarting_stream", False)):
+                    active_gids.add(gid)
+            elif wavelink is not None and isinstance(vc, wavelink.Player):
+                if vc.connected and (vc.playing or vc.paused):
+                    active_gids.add(gid)
+            elif vc.is_connected() and (vc.is_playing() or vc.is_paused()):
                 active_gids.add(gid)
 
         for gid, p in self.players.items():
-            if p.voice_client and p.voice_client.is_connected():
-                if p.voice_client.is_playing() or p.voice_client.is_paused():
-                    active_gids.add(gid)
-                elif p.current or p.current_meta or bool(p.queue) or getattr(p, "is_restarting_stream", False):
+            if p.voice_client and p.vc_is_connected():
+                if p.vc_is_playing() or p.vc_is_paused() or p.current or p.current_meta or bool(p.queue) or getattr(p, "is_restarting_stream", False):
                     active_gids.add(gid)
         return len(active_gids)
 
@@ -490,6 +564,31 @@ class MusicBot(commands.Bot):
         except Exception:
             pass
 
+    async def cleanup_duplicate_guild_commands(self, target_guilds=None) -> int:
+        cleared = 0
+        for g in (target_guilds if target_guilds is not None else list(self.guilds)):
+            try:
+                existing = await self.tree.fetch_commands(guild=g)
+                if existing:
+                    self.tree.clear_commands(guild=g)
+                    await self.tree.sync(guild=g)
+                    cleared += 1
+                    await asyncio.sleep(0.25)
+            except Exception:
+                pass
+        return cleared
+
+    async def _one_time_guild_cmd_cleanup(self):
+        try:
+            cleared = await self.cleanup_duplicate_guild_commands()
+            os.makedirs(os.path.dirname(GUILD_CMDS_CLEARED_FILE), exist_ok=True)
+            with open(GUILD_CMDS_CLEARED_FILE, "w", encoding="utf-8") as f:
+                f.write(str(int(time.time())))
+            if cleared > 0:
+                print(f"Cleared duplicate guild-scoped commands in {cleared} guild(s).")
+        except Exception:
+            pass
+
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
         await self.update_presence_now(force=True)
@@ -497,9 +596,13 @@ class MusicBot(commands.Bot):
             self.status_task = asyncio.create_task(self.dynamic_presence_loop())
         if not self.watcher_task and os.getenv("ENABLE_AUTO_RELOAD", "0") == "1":
             self.watcher_task = asyncio.create_task(self.auto_hot_reload_loop())
-        asyncio.create_task(restore_playback_state(self))
-        if hasattr(self.resolver, "verify_cookies_task"):
-            asyncio.create_task(self.resolver.verify_cookies_task())
+        if not self._initialized:
+            self._initialized = True
+            asyncio.create_task(restore_playback_state(self))
+            if hasattr(self.resolver, "verify_cookies_task"):
+                asyncio.create_task(self.resolver.verify_cookies_task())
+            if not os.path.exists(GUILD_CMDS_CLEARED_FILE):
+                asyncio.create_task(self._one_time_guild_cmd_cleanup())
         print("Ready and listening!")
 
     async def on_resumed(self):
@@ -523,15 +626,12 @@ class MusicBot(commands.Bot):
     async def on_guild_remove(self, guild: discord.Guild):
         player = self.players.pop(guild.id, None)
         if player:
+            if hasattr(player, "disconnect_voice"):
+                await player.disconnect_voice()
             if hasattr(player, "destroy"):
                 player.destroy()
             else:
                 player.stop_ticker()
-            if player.voice_client:
-                try:
-                    await player.voice_client.disconnect(force=True)
-                except Exception:
-                    pass
         asyncio.create_task(self.update_presence_now(force=True))
 
     async def on_member_join(self, member: discord.Member):
@@ -552,12 +652,54 @@ class MusicBot(commands.Bot):
 
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         async def _disconnect_cb(guild: discord.Guild):
-            p = self.players.get(guild.id)
-            if p and p.voice_client:
+            p = self.players.pop(guild.id, None)
+            if p:
                 p.stop_current()
-                await p.voice_client.disconnect(force=True)
-                p.voice_client = None
+                await p.disconnect_voice()
+                p.destroy()
+            if guild.voice_client:
+                try:
+                    await guild.voice_client.disconnect(force=True)
+                except Exception:
+                    pass
+                try:
+                    if hasattr(guild.voice_client, "cleanup"):
+                        guild.voice_client.cleanup()
+                except Exception:
+                    pass
         await self.voice_reaper.handle_voice_state_update(member, before, after, _disconnect_cb)
+
+    async def on_wavelink_track_end(self, payload):
+        player_vc = getattr(payload, "player", None)
+        if not player_vc or not getattr(player_vc, "guild", None):
+            return
+        gp = self.players.get(player_vc.guild.id)
+        if gp:
+            gp.handle_lavalink_track_end(payload)
+
+    async def on_wavelink_track_exception(self, payload):
+        player_vc = getattr(payload, "player", None)
+        if not player_vc or not getattr(player_vc, "guild", None):
+            return
+        gp = self.players.get(player_vc.guild.id)
+        if gp:
+            gp.handle_lavalink_track_exception(payload)
+
+    async def on_wavelink_track_stuck(self, payload):
+        player_vc = getattr(payload, "player", None)
+        if not player_vc or not getattr(player_vc, "guild", None):
+            return
+        gp = self.players.get(player_vc.guild.id)
+        if gp:
+            gp.handle_lavalink_track_stuck(payload)
+
+    async def on_wavelink_node_ready(self, payload):
+        node = getattr(payload, "node", None)
+        resumed = getattr(payload, "resumed", False)
+        uri = getattr(node, "uri", None) or self.wavelink_manager.node_uri
+        print(f"[Lavalink] Node ready ({uri}, resumed={resumed})")
+        if hasattr(self, "audio_bridge") and self.audio_bridge and not self.audio_bridge.is_running:
+            await self.audio_bridge.start()
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
@@ -582,9 +724,41 @@ async def global_command_rate_limit(interaction: discord.Interaction) -> bool:
 
 @bot.command(name="sync")
 @commands.is_owner()
-async def sync(ctx):
+async def sync(ctx: commands.Context, scope: str = "guild"):
+    status_msg = await ctx.send("Syncing commands and clearing duplicate guild commands...")
+    if scope.lower() == "all":
+        cleared = await bot.cleanup_duplicate_guild_commands()
+    elif ctx.guild:
+        cleared = await bot.cleanup_duplicate_guild_commands([ctx.guild])
+    else:
+        cleared = 0
     global_synced = await bot.tree.sync()
-    await ctx.send(f"Synced {len(global_synced)} global application commands.")
+    cmds = sorted([f"{c.name}:{getattr(c, 'description', '')}" for c in bot.tree.get_commands()])
+    curr_hash = hashlib.sha256("".join(cmds).encode()).hexdigest()
+    try:
+        with open(COMMANDS_HASH_FILE, "w", encoding="utf-8") as f:
+            f.write(curr_hash)
+    except Exception:
+        pass
+    await status_msg.edit(content=f"Synced {len(global_synced)} global commands; cleared duplicate guild commands in {cleared} guild(s).")
+
+def check_voice_control_permission(interaction: discord.Interaction, player: GuildPlayer) -> tuple[bool, Optional[str]]:
+    loc = bot.get_guild_locale(interaction.guild)
+    if not player.voice_client or not player.voice_client.channel:
+        return True, None
+    vc = player.voice_client
+    listeners = [m for m in vc.channel.members if not m.bot]
+    if not listeners:
+        return True, None
+    if not interaction.user.voice or interaction.user.voice.channel != vc.channel:
+        msgs = {
+            "zh_TW": "你必須與機器人在同一個語音頻道中才能執行此操作。",
+            "zh_CN": "你必须与机器人在同一个语音频道中才能执行此操作。",
+            "en_US": "You must be in the same voice channel as the bot to perform this action.",
+            "ja_JP": "この操作を行うにはボットと同じボイスチャンネルにいる必要があります。"
+        }
+        return False, msgs.get(loc, "You must be in the same voice channel.")
+    return True, None
 
 async def play_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     clean = (current or "").strip()
@@ -621,7 +795,10 @@ async def play(interaction: discord.Interaction, search: str):
         if not is_allowed:
             return await interaction.followup.send(bot.i18n.get("INVALID_URL_DOMAIN", loc), ephemeral=True)
 
-    is_member = await check_official_guild_membership(bot, interaction.user.id)
+    is_member, is_patron = await asyncio.gather(
+        check_official_guild_membership(bot, interaction.user.id),
+        bot.entitlement_manager.is_patron(interaction.user.id),
+    )
     if not is_member:
         embed = discord.Embed(
             title=bot.i18n.get("AUTH_REQUIRED_TITLE", loc),
@@ -651,7 +828,6 @@ async def play(interaction: discord.Interaction, search: str):
     player = bot.get_player(interaction.guild_id)
     player.current_text_channel = interaction.channel
 
-    is_patron = await bot.entitlement_manager.is_patron(interaction.user.id)
     user_tracks = sum(1 for t in player.queue if t.get("requester_id") == interaction.user.id)
     quota_ok, quota_err = bot.security_gateway.check_queue_quota(len(player.queue), user_tracks, is_patron)
     if not quota_ok:
@@ -660,53 +836,72 @@ async def play(interaction: discord.Interaction, search: str):
         limit_val = 200 if is_patron else 100
         return await interaction.followup.send(bot.i18n.get("USER_QUOTA_REACHED", loc, limit=limit_val), ephemeral=True)
 
+    async def _connect_vc(target_channel):
+        if bot.wavelink_manager.is_connected() and wavelink is not None:
+            return await target_channel.connect(cls=wavelink.Player, self_deaf=True, timeout=20.0, reconnect=True)
+        return await target_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
+
     async def _ensure_voice_connection():
-        vc = interaction.guild.voice_client
-        if vc and vc.is_connected():
-            player.voice_client = vc
-            if vc.channel != voice_channel:
-                await vc.move_to(voice_channel)
-            return
-
-        if vc and not vc.is_connected():
-            try:
-                await vc.disconnect(force=True)
-            except Exception:
-                pass
-            await asyncio.sleep(0.5)
-
-        try:
-            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
-            return
-        except discord.ClientException:
-            for _ in range(6):
-                await asyncio.sleep(0.5)
-                vc = interaction.guild.voice_client
-                if vc and vc.is_connected():
-                    player.voice_client = vc
-                    if vc.channel != voice_channel:
-                        await vc.move_to(voice_channel)
-                    return
+        async with player.connect_lock:
             vc = interaction.guild.voice_client
-            if vc:
+            if vc and player.vc_is_connected(vc):
+                player.voice_client = vc
+                if vc.channel != voice_channel:
+                    listeners = [m for m in vc.channel.members if not m.bot]
+                    if listeners:
+                        raise RuntimeError("CHANNEL_OCCUPIED")
+                    await vc.move_to(voice_channel)
+                return
+
+            if vc and not player.vc_is_connected(vc):
                 try:
                     await vc.disconnect(force=True)
                 except Exception:
                     pass
-                await asyncio.sleep(0.5)
-            player.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0, reconnect=True)
-            return
-        except Exception:
-            vc = interaction.guild.voice_client
-            if vc and vc.is_connected():
-                player.voice_client = vc
-                if vc.channel != voice_channel:
-                    await vc.move_to(voice_channel)
+                try:
+                    if hasattr(vc, "cleanup"):
+                        vc.cleanup()
+                except Exception:
+                    pass
+                await asyncio.sleep(0.3)
+
+            try:
+                player.voice_client = await _connect_vc(voice_channel)
                 return
-            raise
+            except discord.ClientException:
+                vc = interaction.guild.voice_client
+                if vc and player.vc_is_connected(vc):
+                    player.voice_client = vc
+                    if vc.channel != voice_channel:
+                        listeners = [m for m in vc.channel.members if not m.bot]
+                        if listeners:
+                            raise RuntimeError("CHANNEL_OCCUPIED")
+                        await vc.move_to(voice_channel)
+                    return
+                if vc:
+                    try:
+                        await vc.disconnect(force=True)
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(vc, "cleanup"):
+                            vc.cleanup()
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.5)
+                player.voice_client = await _connect_vc(voice_channel)
+                return
+
+    async def _resolve_search():
+        if bot.wavelink_manager.is_connected():
+            fast_tracks = await player.fast_resolve_lavalink_query(search)
+            if fast_tracks:
+                return fast_tracks
+            return await bot.resolver.resolve_metadata_batch(search, preload_stream=False)
+        return await bot.resolver.resolve_metadata_batch(search, preload_stream=True)
 
     voice_task = asyncio.create_task(_ensure_voice_connection())
-    resolve_task = asyncio.create_task(bot.resolver.resolve_metadata_batch(search))
+    resolve_task = asyncio.create_task(_resolve_search())
 
     try:
         await voice_task
@@ -715,9 +910,19 @@ async def play(interaction: discord.Interaction, search: str):
         return await interaction.followup.send(bot.i18n.get("VOICE_CONNECT_TIMEOUT", loc))
     except Exception as e:
         resolve_task.cancel()
-        logging.getLogger("discord.voice_state").error("Voice connection error: %s", e, exc_info=True)
-        err_msg = str(e).strip() or type(e).__name__
-        return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=err_msg))
+        if str(e) == "CHANNEL_OCCUPIED":
+            msgs = {
+                "zh_TW": "機器人目前正在其他語音頻道播放中，且該頻道尚有聽眾，無法切換語音頻道。",
+                "zh_CN": "机器人目前正在其他语音频道播放中，且该频道尚有听众，无法切换语音频道。",
+                "en_US": "The bot is currently playing in another channel with active listeners and cannot be moved.",
+                "ja_JP": "ボットは現在他のチャンネルで再生中であり、リスナーがいるため移動できません。"
+            }
+            return await interaction.followup.send(msgs.get(loc, "Bot is playing in another channel with listeners."), ephemeral=True)
+        err_type = type(e).__name__
+        err_body = str(e).strip()
+        err_msg = f"{err_type}: {err_body}" if err_body else err_type
+        logging.getLogger("discord.voice_state").error("Voice connection error: %s", err_msg, exc_info=True)
+        return await interaction.followup.send(bot.i18n.get("CONNECT_FAIL", loc, error=err_msg or "Unknown error"))
 
     try:
         tracks = await resolve_task
@@ -726,17 +931,33 @@ async def play(interaction: discord.Interaction, search: str):
         tracks = []
 
     if not tracks:
+        logging.getLogger("discord.resolver").error(f"Resolution returned empty list for search: {search}")
         return await interaction.followup.send(bot.i18n.get("NO_AUDIO_FOUND", loc))
 
     async with player.lock:
+        current_len = len(player.queue)
+        max_limit = 200 if is_patron else 100
+        user_current = sum(1 for t in player.queue if t.get("requester_id") == interaction.user.id)
+        user_remain = max(0, max_limit - user_current)
+        guild_remain = max(0, 500 - current_len)
+        allowance = min(user_remain, guild_remain)
+        if allowance <= 0:
+            return await interaction.followup.send(bot.i18n.get("USER_QUOTA_REACHED", loc, limit=max_limit), ephemeral=True)
+
+        tracks = tracks[:allowance]
         is_playing = (player.current is not None or bool(player.queue))
         for track in tracks:
-            track["requester_id"] = interaction.user.id
-            track["requester_name"] = interaction.user.display_name
-            player.queue.append(track)
+            t_copy = dict(track)
+            t_copy["requester_id"] = interaction.user.id
+            t_copy["requester_name"] = interaction.user.display_name
+            player.queue.append(t_copy)
         player.ensure_audio_task()
         if is_playing and player.queue:
-            asyncio.create_task(player._preload_upcoming_track(player.queue[0]))
+            if player.is_lavalink_vc():
+                if len(player.queue) == 1:
+                    asyncio.create_task(player._pre_resolve_lavalink_next(player.queue[0]))
+            else:
+                asyncio.create_task(player._preload_upcoming_track(player.queue[0]))
 
     if len(tracks) == 1:
         await interaction.followup.send(bot.i18n.get("ADDED_SINGLE", loc, title=tracks[0]['title']))
@@ -745,6 +966,7 @@ async def play(interaction: discord.Interaction, search: str):
 
 async def _set_language_handler(interaction: discord.Interaction, lang: app_commands.Choice[str]):
     bot.guild_locales[interaction.guild_id] = lang.value
+    bot.save_guild_locales()
     msg = bot.i18n.get("LANG_SWITCHED", lang.value)
     player = bot.get_player(interaction.guild_id)
     await player.update_panel_inplace()
@@ -775,12 +997,18 @@ async def lg(interaction: discord.Interaction, lang: app_commands.Choice[str]):
 @bot.tree.command(name="previous", description="播放上一首歌曲 / Previous track / 前の曲を再生")
 async def previous(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     await player.play_previous(interaction)
 
 @bot.tree.command(name="seek", description="跳轉播放時間進度 / Seek position / 再生位置を指定")
 @app_commands.describe(timestamp="時間格式 (1:30 或 90) / Time (1:30 or 90)")
 async def seek(interaction: discord.Interaction, timestamp: str):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     if not player.current:
         return await interaction.response.send_message("No track playing.", ephemeral=True)
 
@@ -807,6 +1035,9 @@ async def seek(interaction: discord.Interaction, timestamp: str):
 async def autoleave(interaction: discord.Interaction):
     loc = bot.get_guild_locale(interaction.guild)
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     if player.auto_disconnect:
         is_patron = await bot.entitlement_manager.can_use_247(interaction.user.id)
         if not is_patron:
@@ -828,24 +1059,34 @@ async def autoleave(interaction: discord.Interaction):
 @bot.tree.command(name="skip", description="跳過當前歌曲 / Skip track / 曲をスキップ")
 async def skip(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     await player.process_skip(interaction)
 
 @bot.tree.command(name="skipto", description="跳轉至指定序號曲目 / Skip to index / 指定番号へスキップ")
 @app_commands.describe(index="歌曲序號 / Track number / 曲番号")
 async def skipto(interaction: discord.Interaction, index: int):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     async with player.lock:
         if not player.queue or index < 1 or index > len(player.queue):
             return await interaction.response.send_message("Invalid index.", ephemeral=True)
         player.queue = player.queue[index - 1:]
+        if player.loop_mode == "single":
+            player.loop_mode = "off"
         player.stop_current()
     await interaction.response.send_message(f"#{index}")
 
 @bot.tree.command(name="pause", description="暫停播放 / Pause / 一時停止")
 async def pause(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
-    if player.voice_client and player.voice_client.is_playing():
-        player.voice_client.pause()
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
+    if await player.pause_async():
         await interaction.response.send_message("Paused.")
     else:
         await interaction.response.send_message("Not playing.", ephemeral=True)
@@ -853,8 +1094,10 @@ async def pause(interaction: discord.Interaction):
 @bot.tree.command(name="resume", description="繼續播放 / Resume / 再開")
 async def resume(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
-    if player.voice_client and player.voice_client.is_paused():
-        player.voice_client.resume()
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
+    if await player.resume_async():
         await interaction.response.send_message("Resumed.")
     else:
         await interaction.response.send_message("Not paused.", ephemeral=True)
@@ -862,18 +1105,19 @@ async def resume(interaction: discord.Interaction):
 @bot.tree.command(name="stop", description="停止播放並清空隊列 / Stop and clear queue / 停止")
 async def stop(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     async with player.lock:
         player.queue.clear()
         player.history.clear()
         player.autoplay = False
         player.loop_mode = "off"
         player.stop_ticker()
-        vc = player.voice_client
         player.stop_current()
-        player.voice_client = None
+    bot.players.pop(interaction.guild_id, None)
     await interaction.response.send_message("Stopped.")
-    if vc:
-        await vc.disconnect()
+    await player.disconnect_voice()
 
 @bot.tree.command(name="queue", description="查看待播清單 / View queue / キュー確認")
 async def queue(interaction: discord.Interaction):
@@ -898,15 +1142,46 @@ async def nowplaying(interaction: discord.Interaction):
     embed.add_field(name=bot.i18n.get("PANEL_PROGRESS", loc), value=duration, inline=True)
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="lyrics", description="查看當前歌曲或指定歌名的歌詞 / View lyrics / 歌詞を表示")
+@app_commands.describe(query="選填：指定歌名 / Optional: song title")
+async def lyrics(interaction: discord.Interaction, query: Optional[str] = None):
+    loc = bot.get_guild_locale(interaction.guild)
+    player = bot.get_player(interaction.guild_id)
+    if query and query.strip():
+        search_title = query.strip()
+        search_artist = ""
+    else:
+        if not player.current and not player.current_meta:
+            return await interaction.response.send_message(bot.i18n.get("LYRICS_NO_TRACK", loc), ephemeral=True)
+        meta = player.current_meta or {}
+        curr = player.current or {}
+        search_title = meta.get("track_name") or curr.get("title") or meta.get("title") or ""
+        search_artist = meta.get("artist_name") or curr.get("uploader") or meta.get("uploader") or ""
+        if search_artist in ("Unknown", "YouTube", "StreetVoice", "Bilibili", "SoundCloud"):
+            search_artist = ""
+    await interaction.response.defer()
+    text = await bot.resolver.get_lyrics(search_title, search_artist)
+    if not text:
+        return await interaction.followup.send(bot.i18n.get("LYRICS_NOT_FOUND", loc, title=search_title), ephemeral=True)
+    display_lyrics = text if len(text) <= 3950 else text[:3947] + "..."
+    embed = discord.Embed(
+        title=bot.i18n.get("LYRICS_TITLE", loc, title=search_title)[:256],
+        description=display_lyrics,
+        color=0x3498db
+    )
+    embed.set_footer(text=bot.i18n.get("LYRICS_FOOTER", loc))
+    await interaction.followup.send(embed=embed)
+
 @bot.tree.command(name="volume", description="調整音量 (1 - 200) / Adjust volume / 音量調整")
 @app_commands.describe(level="音量百分比 (1 - 200) / Volume percentage (1 - 200)")
 async def volume(interaction: discord.Interaction, level: int):
     if level < 1 or level > 200:
         return await interaction.response.send_message("1 - 200 only.", ephemeral=True)
     player = bot.get_player(interaction.guild_id)
-    player.volume = level / 100.0
-    if player.voice_client and player.voice_client.source:
-        player.voice_client.source.volume = player.volume
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
+    await player.set_volume(level / 100.0)
     await interaction.response.send_message(f"{level}%")
 
 @bot.tree.command(name="equalizer", description="調整等化器 (EQ) / Change equalizer preset / EQ設定")
@@ -919,6 +1194,10 @@ async def volume(interaction: discord.Interaction, level: int):
 ])
 async def equalizer(interaction: discord.Interaction, preset: app_commands.Choice[str]):
     loc = bot.get_guild_locale(interaction.guild)
+    player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     if preset.value != "flat":
         is_patron = await bot.entitlement_manager.can_use_equalizer(interaction.user.id)
         if not is_patron:
@@ -930,7 +1209,6 @@ async def equalizer(interaction: discord.Interaction, preset: app_commands.Choic
             view = discord.ui.View()
             view.add_item(discord.ui.Button(label=bot.i18n.get("PATREON_BTN_LABEL", loc), url=PATREON_URL, style=discord.ButtonStyle.link))
             return await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-    player = bot.get_player(interaction.guild_id)
     await player.set_eq(preset.value)
     player.eq_enabled_by = interaction.user.id if preset.value != "flat" else None
     await interaction.response.send_message(preset.name)
@@ -939,6 +1217,9 @@ async def equalizer(interaction: discord.Interaction, preset: app_commands.Choic
 @bot.tree.command(name="shuffle", description="隨機打亂隊列 / Shuffle queue / シャッフル")
 async def shuffle(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     async with player.lock:
         if len(player.queue) < 2:
             return await interaction.response.send_message("Queue too short.", ephemeral=True)
@@ -953,6 +1234,9 @@ async def shuffle(interaction: discord.Interaction):
 ])
 async def loop(interaction: discord.Interaction, mode: app_commands.Choice[str]):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     player.loop_mode = mode.value
     await interaction.response.send_message(mode.name)
 
@@ -960,6 +1244,9 @@ async def loop(interaction: discord.Interaction, mode: app_commands.Choice[str])
 @app_commands.describe(index="歌曲序號 / Track number / 曲番号")
 async def remove(interaction: discord.Interaction, index: int):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     async with player.lock:
         if index < 1 or index > len(player.queue):
             return await interaction.response.send_message("Invalid index.", ephemeral=True)
@@ -969,6 +1256,9 @@ async def remove(interaction: discord.Interaction, index: int):
 @bot.tree.command(name="clear", description="清空隊列 / Clear queue / キューを消去")
 async def clear(interaction: discord.Interaction):
     player = bot.get_player(interaction.guild_id)
+    allowed, err_msg = check_voice_control_permission(interaction, player)
+    if not allowed:
+        return await interaction.response.send_message(err_msg, ephemeral=True)
     async with player.lock:
         count = len(player.queue)
         player.queue.clear()
@@ -979,10 +1269,10 @@ STATE_FILE = os.path.join("/app/data" if os.path.exists("/app/data") else "data"
 def save_playback_state(bot_instance: commands.Bot):
     state = {}
     for guild_id, player in list(bot_instance.players.items()):
-        if player.voice_client and player.voice_client.channel and (player.current or player.queue):
+        if player.voice_client and getattr(player.voice_client, "channel", None) and (player.current or player.queue):
             elapsed = 0
-            if player.voice_client.is_playing() and player.track_start_time > 0:
-                elapsed = max(0, int(time.time() - player.track_start_time))
+            if player.vc_is_playing() and player.track_start_time > 0:
+                elapsed = player.get_elapsed_seconds()
             state[str(guild_id)] = {
                 "voice_channel_id": player.voice_client.channel.id,
                 "text_channel_id": player.current_text_channel.id if player.current_text_channel else None,
@@ -1043,8 +1333,14 @@ async def restore_playback_state(bot_instance: commands.Bot, delay_interval: flo
                 player.queue.insert(0, current_item)
 
             try:
-                if not player.voice_client or not player.voice_client.is_connected():
-                    player.voice_client = await asyncio.wait_for(v_channel.connect(self_deaf=True), timeout=10.0)
+                if not player.voice_client or not player.vc_is_connected():
+                    if getattr(bot_instance, "wavelink_manager", None) and bot_instance.wavelink_manager.is_connected() and wavelink is not None:
+                        player.voice_client = await asyncio.wait_for(
+                            v_channel.connect(cls=wavelink.Player, self_deaf=True, reconnect=True),
+                            timeout=10.0,
+                        )
+                    else:
+                        player.voice_client = await asyncio.wait_for(v_channel.connect(self_deaf=True), timeout=10.0)
                 player.ensure_audio_task()
             except Exception:
                 pass
@@ -1053,15 +1349,21 @@ async def restore_playback_state(bot_instance: commands.Bot, delay_interval: flo
     await asyncio.gather(*tasks, return_exceptions=True)
 
 async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
+    global GuildPlayer, QueuePaginator, UniversalResolver
     try:
         import importlib
+        import core.wavelink_node
         import core.resolver
         import core.player
         bot_instance.i18n._load_locales()
+        importlib.reload(core.wavelink_node)
         importlib.reload(core.resolver)
         importlib.reload(core.player)
+        UniversalResolver = core.resolver.UniversalResolver
+        GuildPlayer = core.player.GuildPlayer
+        QueuePaginator = core.player.QueuePaginator
         old_resolver = getattr(bot_instance, "resolver", None)
-        bot_instance.resolver = core.resolver.UniversalResolver()
+        bot_instance.resolver = UniversalResolver()
         if hasattr(bot_instance, "_setup_resolver_alert"):
             bot_instance._setup_resolver_alert(bot_instance.resolver)
         if old_resolver:
@@ -1077,10 +1379,24 @@ async def perform_hot_reload(bot_instance: commands.Bot) -> tuple[bool, str]:
                 pass
 
         for idx, p in enumerate(list(bot_instance.players.values())):
-            p.__class__ = core.player.GuildPlayer
+            p.__class__ = GuildPlayer
             p.resolver = bot_instance.resolver
             if not hasattr(p, "lock") or p.lock is None:
                 p.lock = asyncio.Lock()
+            if not hasattr(p, "connect_lock") or p.connect_lock is None:
+                p.connect_lock = asyncio.Lock()
+            if not hasattr(p, "_pre_resolved_cache") or p._pre_resolved_cache is None:
+                p._pre_resolved_cache = {}
+            if not hasattr(p, "skip_votes") or p.skip_votes is None:
+                p.skip_votes = set()
+            if not hasattr(p, "history") or p.history is None:
+                p.history = []
+            if not hasattr(p, "play_next_event") or p.play_next_event is None:
+                p.play_next_event = asyncio.Event()
+            if not hasattr(p, "queue_event") or p.queue_event is None:
+                p.queue_event = asyncio.Event()
+            if not hasattr(p, "stream_token"):
+                p.stream_token = 0
             p.ensure_audio_task()
             if p.panel_message:
                 asyncio.create_task(_smooth_panel_refresh(p, idx * 0.05))
@@ -1138,6 +1454,7 @@ async def execute_server_broadcast(bot_instance: commands.Bot, message: str, tit
                 try:
                     await target_channel.send(embed=embed, view=view)
                     success += 1
+                    await asyncio.sleep(0.05)
                     return
                 except Exception:
                     pass

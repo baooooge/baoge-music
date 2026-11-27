@@ -47,6 +47,11 @@
   "BTN_VOL_UP": "音量 +10%",
   "BTN_VOL_RESET": "音量 100%",
   "BTN_CLEAR": "キュー消去",
+  "BTN_LYRICS": "歌詞",
+  "LYRICS_TITLE": "歌詞 — {title}",
+  "LYRICS_NOT_FOUND": "「{title}」の歌詞が見つかりませんでした。",
+  "LYRICS_NO_TRACK": "現在再生中の曲はありません。曲名を指定するか、先に再生してください。",
+  "LYRICS_FOOTER": "歌詞提供：LRCLIB",
   "EQ_PLACEHOLDER": "EQ プリセットを選択...",
   "JOIN_VOICE_FIRST": "先にボイスチャンネルに参加してください！",
   "VOICE_NO_PERM_CONNECT": "ボットにこのボイスチャンネルへの接続権限がありません（Connect）。",
@@ -65,7 +70,7 @@
   "PATREON_EQ_DESC": "DSP イコライザープリセットは Patreon スポンサー限定です。",
   "PATREON_BTN_LABEL": "Patreon でアンロック",
   "RATE_LIMITED": "操作が頻繁すぎます。あと {time} 秒お待ちください。",
-  "SERVER_QUEUE_FULL": "サーバーのキュー上限に達しました（最大 100 曲）。",
+  "SERVER_QUEUE_FULL": "サーバーのキュー上限に達しました（最大 500 曲）。",
   "USER_QUOTA_REACHED": "あなたのキュー登録数が上限に達しました（最大 {limit} 曲）。",
   "INVALID_URL_DOMAIN": "この URL ドメインは許可されたホワイトリストに含まれていません。"
 }

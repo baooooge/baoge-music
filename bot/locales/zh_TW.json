@@ -47,6 +47,11 @@
   "BTN_VOL_UP": "音量 +10%",
   "BTN_VOL_RESET": "重設 100%",
   "BTN_CLEAR": "清空佇列",
+  "BTN_LYRICS": "歌詞",
+  "LYRICS_TITLE": "歌詞 — {title}",
+  "LYRICS_NOT_FOUND": "找不到「{title}」的歌詞。",
+  "LYRICS_NO_TRACK": "目前沒有正在播放的歌曲，請提供歌名或先點歌。",
+  "LYRICS_FOOTER": "歌詞來源：LRCLIB",
   "EQ_PLACEHOLDER": "選擇 EQ 等化器效果...",
   "JOIN_VOICE_FIRST": "請先加入語音頻道！",
   "VOICE_NO_PERM_CONNECT": "機器人缺乏加入該語音頻道的權限（Connect）。",
@@ -65,7 +70,7 @@
   "PATREON_EQ_DESC": "DSP 硬體等化器效果為 Patreon 贊助者專屬功能。",
   "PATREON_BTN_LABEL": "解鎖 Patreon 特權",
   "RATE_LIMITED": "操作過於頻繁，請稍候 {time} 秒。",
-  "SERVER_QUEUE_FULL": "伺服器隊列已達上限（最多 100 首）。",
+  "SERVER_QUEUE_FULL": "伺服器隊列已達上限（最多 500 首）。",
   "USER_QUOTA_REACHED": "您在隊列中的曲目已達個人配額上限（最多 {limit} 首）。",
   "INVALID_URL_DOMAIN": "此網址網域不符合安全來源白名單政策。"
 }

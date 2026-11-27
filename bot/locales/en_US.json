@@ -47,6 +47,11 @@
   "BTN_VOL_UP": "Vol +10%",
   "BTN_VOL_RESET": "Reset 100%",
   "BTN_CLEAR": "Clear Queue",
+  "BTN_LYRICS": "Lyrics",
+  "LYRICS_TITLE": "Lyrics — {title}",
+  "LYRICS_NOT_FOUND": "Could not find lyrics for **{title}**.",
+  "LYRICS_NO_TRACK": "Nothing is playing. Please play a track or provide a song name.",
+  "LYRICS_FOOTER": "Lyrics provided by LRCLIB",
   "EQ_PLACEHOLDER": "Select EQ preset...",
   "JOIN_VOICE_FIRST": "Please join a voice channel first!",
   "VOICE_NO_PERM_CONNECT": "Bot is missing permission to join this voice channel (Connect).",
@@ -65,7 +70,7 @@
   "PATREON_EQ_DESC": "DSP Equalizer presets are exclusively available to Patreon supporters.",
   "PATREON_BTN_LABEL": "Unlock with Patreon",
   "RATE_LIMITED": "Action is rate limited. Please wait {time}s.",
-  "SERVER_QUEUE_FULL": "Server queue limit reached (maximum 100 tracks).",
+  "SERVER_QUEUE_FULL": "Server queue limit reached (maximum 500 tracks).",
   "USER_QUOTA_REACHED": "Your queued tracks have reached personal quota (maximum {limit} tracks).",
   "INVALID_URL_DOMAIN": "This URL domain is not in the allowed whitelist."
 }

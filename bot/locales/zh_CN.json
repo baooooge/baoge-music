@@ -47,6 +47,11 @@
   "BTN_VOL_UP": "音量 +10%",
   "BTN_VOL_RESET": "重置 100%",
   "BTN_CLEAR": "清空队列",
+  "BTN_LYRICS": "歌词",
+  "LYRICS_TITLE": "歌词 — {title}",
+  "LYRICS_NOT_FOUND": "找不到「{title}」的歌词。",
+  "LYRICS_NO_TRACK": "当前没有正在播放的歌曲，请提供歌名或先点歌。",
+  "LYRICS_FOOTER": "歌词来源：LRCLIB",
   "EQ_PLACEHOLDER": "选择 EQ 均衡器效果...",
   "JOIN_VOICE_FIRST": "请先加入语音频道！",
   "VOICE_NO_PERM_CONNECT": "机器人缺乏加入该语音频道的权限（Connect）。",
@@ -65,7 +70,7 @@
   "PATREON_EQ_DESC": "DSP 硬件均衡器效果为 Patreon 赞助者专属功能。",
   "PATREON_BTN_LABEL": "解锁 Patreon 特权",
   "RATE_LIMITED": "操作过于频繁，请稍候 {time} 秒。",
-  "SERVER_QUEUE_FULL": "服务器队列已达上限（最多 100 首）。",
+  "SERVER_QUEUE_FULL": "服务器队列已达上限（最多 500 首）。",
   "USER_QUOTA_REACHED": "您在队列中的曲目已达个人配额上限（最多 {limit} 首）。",
   "INVALID_URL_DOMAIN": "此网址域名不符合安全来源白名单策略。"
 }

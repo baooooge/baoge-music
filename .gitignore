@@ -36,6 +36,12 @@ Thumbs.db
 
 lavalink/application.yml
 !lavalink/application.example.yml
+lavalink/Lavalink.jar
+lavalink/plugins/
+lavalink/logs/
+lavalink/jre/
 
 ffmpeg.exe
 *.exe
+*.dll
+backups/

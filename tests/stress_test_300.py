@@ -241,7 +241,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
             "search_query": query
         }]
 
-    async def _mock_get_live_stream(query: str):
+    async def _mock_get_live_stream(query: str, expected_duration: int = 0):
         await asyncio.sleep(0.002)
         return {
             "id": f"stream_{hash(query) % 10000}",
@@ -272,7 +272,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
         m = orig_reload(mod)
         if getattr(mod, "__name__", "") == "core.resolver":
             m.UniversalResolver.resolve_metadata_batch = lambda self, q: _mock_resolve_batch(q)
-            m.UniversalResolver.get_live_stream = lambda self, q: _mock_get_live_stream(q)
+            m.UniversalResolver.get_live_stream = lambda self, q, expected_duration=0: _mock_get_live_stream(q, expected_duration=expected_duration)
             m.UniversalResolver.get_autoplay_recommendation = lambda self, c, h=None: _mock_autoplay(c, h)
         elif getattr(mod, "__name__", "") == "core.player":
             m.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
@@ -280,7 +280,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
 
     importlib.reload = _custom_reload
     core.resolver.UniversalResolver.resolve_metadata_batch = lambda self, q: _mock_resolve_batch(q)
-    core.resolver.UniversalResolver.get_live_stream = lambda self, q: _mock_get_live_stream(q)
+    core.resolver.UniversalResolver.get_live_stream = lambda self, q, expected_duration=0: _mock_get_live_stream(q, expected_duration=expected_duration)
     core.resolver.UniversalResolver.get_autoplay_recommendation = lambda self, c, h=None: _mock_autoplay(c, h)
     core.player.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
     bot.resolver.resolve_metadata_batch = _mock_resolve_batch
@@ -487,7 +487,7 @@ async def run_single_pass(pass_number: int, guild_count: int = 300) -> Dict[str,
     reload_duration = time.time() - reload_t0
 
     core.resolver.UniversalResolver.resolve_metadata_batch = lambda self, q: _mock_resolve_batch(q)
-    core.resolver.UniversalResolver.get_live_stream = lambda self, q: _mock_get_live_stream(q)
+    core.resolver.UniversalResolver.get_live_stream = lambda self, q, expected_duration=0: _mock_get_live_stream(q, expected_duration=expected_duration)
     core.resolver.UniversalResolver.get_autoplay_recommendation = lambda self, c, h=None: _mock_autoplay(c, h)
     core.player.SafeFFmpegPCMAudio = lambda *args, **kwargs: MockSilentAudioSource()
     bot.resolver.resolve_metadata_batch = _mock_resolve_batch

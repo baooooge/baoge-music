@@ -44,11 +44,21 @@ class EntitlementManager:
                         if self.bot.voice_reaper.is_channel_empty(player.voice_client.channel):
                             guild = self.bot.get_guild(guild_id)
                             if guild:
-                                async def _dc(g):
-                                    if player.voice_client:
-                                        player.stop_current()
-                                        await player.voice_client.disconnect(force=True)
-                                self.bot.voice_reaper.schedule_reap(guild, _dc)
+                                def _make_reap_dc(p, gid):
+                                    async def _dc(g):
+                                        try:
+                                            if hasattr(p, "disconnect_voice"):
+                                                await p.disconnect_voice()
+                                            elif p.voice_client:
+                                                p.stop_current()
+                                                await p.voice_client.disconnect(force=True)
+                                        except Exception:
+                                            pass
+                                        p.destroy()
+                                        if hasattr(self.bot, "players"):
+                                            self.bot.players.pop(gid, None)
+                                    return _dc
+                                self.bot.voice_reaper.schedule_reap(guild, _make_reap_dc(player, guild_id))
                     asyncio.create_task(player.update_panel_inplace())
 
                 if player.current_eq != "flat" and getattr(player, "eq_enabled_by", None) == user_id:
@@ -111,12 +121,17 @@ class EntitlementManager:
             if now - cached_time < ttl:
                 return is_eligible
 
+        is_owner = False
         async with self._lock:
             if user_id in self._in_flight:
-                return await self._in_flight[user_id]
-            loop = asyncio.get_running_loop()
-            fut = loop.create_future()
-            self._in_flight[user_id] = fut
+                fut = self._in_flight[user_id]
+            else:
+                fut = asyncio.get_running_loop().create_future()
+                self._in_flight[user_id] = fut
+                is_owner = True
+
+        if not is_owner:
+            return await fut
 
         try:
             guild = self.bot.get_guild(self.support_guild_id)
@@ -128,7 +143,8 @@ class EntitlementManager:
 
             if not guild:
                 self._cache[user_id] = (now, False)
-                fut.set_result(False)
+                if not fut.done():
+                    fut.set_result(False)
                 return False
 
             member = guild.get_member(user_id)
@@ -146,7 +162,8 @@ class EntitlementManager:
             if len(self._cache) > 10000:
                 self._cache.pop(next(iter(self._cache)), None)
 
-            fut.set_result(is_eligible)
+            if not fut.done():
+                fut.set_result(is_eligible)
             return is_eligible
         except Exception:
             self._cache[user_id] = (now, False)
@@ -154,6 +171,8 @@ class EntitlementManager:
                 fut.set_result(False)
             return False
         finally:
+            if not fut.done():
+                fut.set_result(False)
             async with self._lock:
                 self._in_flight.pop(user_id, None)
 

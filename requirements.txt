@@ -1,10 +1,9 @@
 discord.py[voice]
-davey
+davey>=0.1.6,<0.2.0
 https://github.com/yt-dlp/yt-dlp/archive/master.tar.gz
-spotipy
 beautifulsoup4
 aiohttp
-requests
 pynacl
-wavelink==3.4.1
+wavelink>=3.5.2,<4.0.0
+zhconv>=1.4.3
 uvloop; sys_platform != "win32"

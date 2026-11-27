@@ -24,27 +24,31 @@ License: AGPL-3.0
 BaoGe Music Bot is a self-hosted Discord music bot engineered for stability, multi-platform support, dynamic DSP filtering, and studio audio purity.
 
 ### Key Features
-* Multi-Platform Support: YouTube, Bilibili, StreetVoice (HLS direct extraction), KKBOX (Widget DOM parsing), Spotify, Apple Music.
-* Audio Purity Filter: Automatically excludes live recordings, unofficial covers, and low-quality audio to ensure studio-grade playback.
+* Hybrid Audio Architecture (v3.0.1): Runs on Lavalink 4.2+ (DAVE E2EE voice, pure Opus streaming, 15-band instant DSP EQ, 0ms pre-resolved track transitions) paired with an internal HTTP AudioBridge for custom-header/HLS streams (StreetVoice, Bilibili) and automatic standalone FFmpeg fallback.
+* Multi-Platform Support: YouTube, YouTube Music, Bilibili, StreetVoice (HLS direct extraction), KKBOX (Widget & API parsing), Spotify (ISRC + scraper), Apple Music, SoundCloud.
+* Audio Purity Filter: Two-tier track matching (`track_name`/`artist_name`/`isrc` + CJK Simplified/Traditional normalization) that excludes live covers and off-duration edits.
 * Smart Autoplay: Automatically transitions into official radio recommendations when the queue ends.
-* Dynamic DSP Equalizer: Real-time EQ presets (Flat, Bass Boost, Bass Extreme, Vocal Boost, Treble Boost) and seamless 15-second seeking.
-* Internationalization (i18n): Automatic guild language detection and manual switching via `/language` or `/lg` (en_US, zh_TW, zh_CN, ja_JP).
-* Interactive Control Panel: In-message real-time progress bar, volume controls, and playback management buttons.
+* Dynamic DSP Equalizer & Lyrics: Real-time 15-band EQ presets (Flat, Bass Boost, Bass Extreme, Vocal Boost, Treble Boost), instant seeking, and `/lyrics` lookup (plus panel Lyrics button).
+* Internationalization (i18n): Automatic guild language detection and persisted manual switching via `/language` or `/lg` (en_US, zh_TW, zh_CN, ja_JP).
+* Interactive Control Panel: In-message real-time progress bar, volume controls, lyrics button, and playback management controls.
 
-### Quick Start (Docker)
+### Quick Start (Native Windows or Docker)
+* **Native Windows**: Place `Lavalink.jar` (v4.2+) in `lavalink/`, copy `.env.example` to `.env` & `lavalink/application.example.yml` to `lavalink/application.yml`, and run `start_native.bat`.
+* **Docker**:
 1. Clone the repository:
    git clone https://github.com/baooooge/baoge-music.git
    cd baoge-music
 
 2. Configure environment:
    cp .env.example .env
-   (Edit .env and enter your DISCORD_TOKEN)
+   (Edit .env and enter your DISCORD_TOKEN; set LAVALINK_URI=http://lavalink:2333 for Docker)
 
 3. Run the container:
    docker compose up -d --build
 
 ### Command Reference
 * `/play <search>`: Stream audio from title or supported URL.
+* `/lyrics [query]`: Fetch synchronized/plain lyrics for the current track or a query.
 * `/language` (`/lg`): Change server interface language.
 * `/nowplaying`: Display current audio track information.
 * `/queue`: View paginated playback queue.
@@ -76,27 +80,31 @@ Under AGPL-3.0 Section 7, all distributions, forks, and deployments must retain 
 BaoGe Music Bot 是一款專為錄音室級高保真音質設計的 Discord 音樂機器人，具備全平台解析、原音純化演算法與動態控制面板。
 
 ### 核心功能
-* 全平台音訊支援：原生解析 YouTube、Bilibili、StreetVoice（街聲 HLS 直鏈）、KKBOX（Widget 穿透）、Spotify 與 Apple Music。
-* 原音純化過濾器：自動過濾現場演唱（Live）、非官方翻唱（Cover）與雜音，確保輸出最高音質母帶。
+* 混合高音質引擎 (v3.0.1)：以原生 Lavalink 4.2+（支援 Discord DAVE E2EE 語音、純 Opus 直通串流、15 段即時硬體 DSP EQ、背景預解析秒切）為核心，搭配內部 HTTP `AudioBridge` 支援街聲與 B 站等自訂標頭串流，並保留獨立 FFmpeg 自動備援。
+* 全平台音訊支援：原生支援 YouTube、YouTube Music、Bilibili、StreetVoice（街聲 HLS 直鏈）、KKBOX、Spotify（ISRC + 結構化匹配）、Apple Music 與 SoundCloud。
+* 智慧曲目純化與繁簡同義匹配：結合 `track_name` / `artist_name` / `isrc` 結構化評分與繁簡中文正規化，排除非官方翻唱與版本誤差。
 * 智慧電台續播：播放清單播畢後，自動銜接官方廣播推薦曲目，音樂不中斷。
-* 動態 DSP 等化器：即時套用等化器（原音、重低音、極限低音、人聲清晰、通透高音）與無縫 ±15 秒快進快退。
-* 多國語言架構：自動偵測伺服器預設語系，並支援使用 `/language` 或 `/lg` 即時切換（繁中、簡中、英文、日文）。
-* 視覺化控制面板：點歌自動喚出動態進度條與全功能按鈕操控介面。
+* 動態 DSP 等化器與即時歌詞：即時套用 15 段等化器（原音、重低音、極限低音、人聲清晰、通透高音）、毫秒級進度跳轉，以及 `/lyrics` 指令與面板「歌詞」按鈕。
+* 多國語言架構：自動偵測伺服器語系，並支援 `/language` 或 `/lg` 持久化切換（繁中、簡中、英文、日文）。
+* 視覺化控制面板：點歌自動更新動態進度條、歌詞與全功能按鈕操控介面。
 
-### 快速部署 (Docker)
+### 快速部署（原生 Windows 或 Docker）
+* **原生 Windows**：將 `Lavalink.jar`（v4.2+）放入 `lavalink/`，複製 `.env.example` 為 `.env` 與 `lavalink/application.example.yml` 為 `lavalink/application.yml`，雙擊 `start_native.bat` 即可同時啟動 Lavalink 與機器人。
+* **Docker**：
 1. 下載專案原始碼：
    git clone https://github.com/baooooge/baoge-music.git
    cd baoge-music
 
 2. 設定環境變數：
    cp .env.example .env
-   (編輯 .env 並填入你的 DISCORD_TOKEN)
+   (編輯 .env 並填入 DISCORD_TOKEN；Docker 環境請將 LAVALINK_URI 設為 http://lavalink:2333)
 
 3. 啟動服務：
    docker compose up -d --build
 
 ### 指令清單
 * `/play <歌名/網址>`：播放指定歌曲或平台播放清單。
+* `/lyrics [歌名]`：查詢目前播放歌曲或指定曲目的歌詞。
 * `/language` (`/lg`)：設定伺服器介面語言。
 * `/nowplaying`：查看當前播放曲目詳細資訊。
 * `/queue`：查看分頁待播清單。
